@@ -44,6 +44,24 @@ Konservativ: gesetzte Werte werden nie überschrieben; ohne Flugzeit wird nichts
 (die Spalte bleibt dann leer, statt eine Zahl zu raten). Ein Fehler im Fix kann eine
 PIREP-Einreichung nicht kippen — er wird geloggt und geschluckt.
 
+### 2. Flight-Number-Data-Hygiene (`FlightNumberObserver`)
+
+**Symptom:** Ein Personal-/Freiflug (z.B. das DisposableSpecial-Modul) kann mit
+`flight_number = 0` gespeichert werden — das Formular lehnt nur ein *leeres* Feld ab,
+eine „0" zählt als gültige Eingabe. Jeder Consumer der phpVMS-API (Admin-Oberfläche,
+ACARS-Clients, Exporte) sieht danach eine bedeutungslose „0" statt eines echten
+Identifiers, obwohl das Modul meist einen echten `callsign` (z.B. „7ME") gesetzt hat.
+
+**Warum kein Core-Fix wie bei den Block-Zeiten:** `flights.flight_number` ist
+`int(10) unsigned NOT NULL` — eine Normalisierung auf `null` würde den Save entweder
+hart brechen oder (da dieser Server ohne `STRICT_TRANS_TABLES` läuft) klaglos wieder
+auf `0` zurückfallen. Aus dem gleichen Grund korrigiert dieser Observer **nichts** und
+blockiert auch keinen Save — er protokolliert nur (`Log::info`, nie fehlschlagend),
+damit wiederkehrende Fälle im Log auffallen, statt erst per Pilot-Meldung bekannt zu
+werden. Die eigentliche Reparatur gehört auf die Consumer-Seite: `callsign` vor
+`flight_number` bevorzugen, genau wie phpVMS' eigener `Flight::atc()`-Accessor es
+bereits tut.
+
 ## Achtung: der Cast-Bug bleibt bestehen
 
 Das Modul sorgt dafür, dass die Spalten **gefüllt** werden. Der `CarbonCast` selbst ist
@@ -103,6 +121,23 @@ ACARS client or code path created the PIREP.
 Conservative by design: existing values are never overwritten, and without a flight time nothing
 is invented (the column simply stays empty rather than carrying a guess). A failure inside the fix
 can never break a PIREP submission — it is logged and swallowed.
+
+### 2. Flight-number data hygiene (`FlightNumberObserver`)
+
+**Symptom:** a Personal/Free flight (e.g. via the DisposableSpecial module) can be
+saved with `flight_number = 0` — the form only rejects an *empty* field, a literal
+"0" counts as valid input. Every consumer of the phpVMS API (admin UI, ACARS clients,
+exports) then sees a meaningless "0" instead of a real identifier, even though the
+module usually did set a real `callsign` (e.g. "7ME").
+
+**Why not a core fix like the block-time one:** `flights.flight_number` is
+`int(10) unsigned NOT NULL` — normalizing it to `null` would either hard-break the
+save, or (since this server runs without `STRICT_TRANS_TABLES`) silently fall back to
+`0` again anyway. For the same reason this observer corrects **nothing** and never
+blocks a save — it only logs (`Log::info`, never fails) so recurring cases show up in
+the log instead of only being found out via a pilot report. The actual fix belongs on
+the consumer side: prefer `callsign` over `flight_number`, exactly like phpVMS's own
+`Flight::atc()` accessor already does.
 
 ## Careful: the cast bug itself remains
 
