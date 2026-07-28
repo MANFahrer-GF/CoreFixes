@@ -1,7 +1,7 @@
 {
     "name": "CoreFixes",
     "alias": "corefixes",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "description": "GSG: haelt Fixes fuer phpVMS-Core-Bugs update-fest. Statt Core-Dateien zu patchen (die jedes phpVMS-Update ueberschreibt), haengt sich dieses Modul von aussen in die Model-Events und korrigiert das Verhalten. Fix 1: PIREP-Block-Zeiten (block_off_time/block_on_time bleiben NULL, weil PirepService' eigener Fallback am CarbonCast scheitert). Fix 2: Flight-Number-Hard-Block (blockiert Flight-Saves mit flight_number<=0, z.B. aus Freiflug-Formularen, per Exception).",
     "keywords": [
         "phpvms",

@@ -63,9 +63,13 @@ Bug auslöst, prüft den Rückgabewert von `save()` nirgends und legt danach *un
 eine Buchung (`Bid`) gegen die Flight-ID an, inkl. Erfolgsmeldung — ein nur per
 `return false` verworfener Save hätte also eine kaputte Buchung erzeugt, die wie ein
 Erfolg aussieht. Die Exception bricht die gesamte Anfrage ab, *bevor* die Buchung
-entsteht. Der Pilot sieht dafür Laravels generische Fehlerseite statt einer
-maßgeschneiderten Meldung (wir dürfen das auslösende Formular nicht anfassen) —
-bewusster Kompromiss: lieber hässlich-aber-ehrlich als hübsch-aber-falsch.
+entsteht.
+
+Die geworfene `FlightNumberInvalidException` definiert ihre eigene `render()` (ein
+dokumentierter Laravel-Erweiterungspunkt — kein Core-File-Edit nötig) und zeigt dem
+Piloten eine Meldung **in seiner tatsächlich eingestellten Sprache** (liest dieselbe
+`SetActiveLanguage`-Middleware/`lang`-Cookie, die auch der Rest der Seite nutzt) statt
+Laravels generischer, immer-englischer Standardfehlerseite.
 
 Die zusätzliche Client-Reparatur bleibt bestehen und ist weiterhin die primäre
 Abhilfe für bereits bestehende Fälle: `callsign` wird vor `flight_number` bevorzugt
@@ -149,10 +153,13 @@ save, or (since this server runs without `STRICT_TRANS_TABLES`) silently fall ba
 never checks `save()`'s return value and unconditionally creates a booking (`Bid`)
 against the flight ID afterward, plus a success message — a save merely dropped via
 `return false` would have produced a broken booking that looks like a success. The
-exception aborts the whole request *before* that booking is created. The pilot sees
-Laravel's generic error page instead of a tailored message (we're not allowed to
-touch the offending form) — a deliberate trade-off: ugly-but-honest beats
-pretty-but-wrong.
+exception aborts the whole request *before* that booking is created.
+
+The thrown `FlightNumberInvalidException` defines its own `render()` (a documented
+Laravel extension point — no core-file edit needed) and shows the pilot a message
+**in whatever language they've actually selected** (reads the same
+`SetActiveLanguage` middleware / `lang` cookie the rest of the site uses) instead of
+Laravel's generic, always-English default error page.
 
 The client-side fix remains in place and is still the primary remedy for already-
 existing cases: `callsign` is preferred over `flight_number` everywhere, exactly like

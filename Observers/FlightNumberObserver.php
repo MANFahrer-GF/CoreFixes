@@ -6,6 +6,7 @@ namespace Modules\CoreFixes\Observers;
 
 use App\Models\Flight;
 use Illuminate\Support\Facades\Log;
+use Modules\CoreFixes\Exceptions\FlightNumberInvalidException;
 
 /**
  * CORE-FIX 2 — Flight-Number-Hard-Block (Freiflug/DisposableSpecial).
@@ -38,13 +39,14 @@ use Illuminate\Support\Facades\Log;
  * Erfolg aus) als das urspruengliche Anzeige-Problem. Eine geworfene Exception
  * dagegen bricht die GESAMTE Anfrage ab, BEVOR die Bid-Zeile angelegt wird.
  *
- * UX-Kompromiss (bewusst akzeptiert): DisposableSpecial duerfen wir laut
- * Vorgabe nicht anfassen, koennen also keine huebsche "Check Flight Number!"-
- * Flash-Meldung wie bei den anderen Validierungen in diesem Formular zeigen.
- * Der Pilot sieht stattdessen Laravels Standard-Fehlerseite (APP_DEBUG=false
- * auf Live verifiziert -> keine Stacktrace/Info-Leaks, nur eine generische
- * Fehlerseite). Besser eine haessliche, aber EHRLICHE Fehlerseite als eine
- * huebsche, aber FALSCHE Erfolgsmeldung.
+ * UX (v1.2.1 nachgebessert): DisposableSpecial duerfen wir laut Vorgabe nicht
+ * anfassen, koennen also keine Flash-Meldung im selben Stil wie die anderen
+ * Validierungen in diesem Formular zeigen ("Check Flight Number!"). Aber die
+ * geworfene `FlightNumberInvalidException` (siehe deren eigener Doc-
+ * Kommentar) definiert ihre eigene `render()` — ein echter, DE/EN-locale-
+ * aware Fehlerbildschirm statt Laravels generischer Standardfehlerseite.
+ * APP_DEBUG=false auf Live verifiziert (keine Stacktrace/Info-Leaks, auch
+ * vorher schon).
  *
  * Nebenwirkung (bewusst in Kauf genommen, live verifiziert 2026-07-28): 9
  * bereits bestehende Flight-Zeilen haben aktuell `flight_number <= 0`
@@ -79,9 +81,11 @@ final class FlightNumberObserver
             'callsign'    => $callsign !== '' ? $callsign : null,
         ]);
 
-        throw new \RuntimeException(
-            'CoreFixes: flight_number must be a positive integer (got '.$flightNumber.'). '
-            .'"0" is not a valid flight number — please enter a real one.'
-        );
+        // v1.2.1 (Thomas-Feedback): eine eigene, locale-aware Exception statt
+        // eines nackten RuntimeException — siehe deren Doc-Kommentar. Zeigt
+        // dem Piloten eine Meldung in SEINER Sprache (liest dieselbe
+        // `SetActiveLanguage`-Middleware, die auch der Rest der Seite nutzt)
+        // statt Laravels generischer, immer-Englisch-Standardfehlerseite.
+        throw new FlightNumberInvalidException($flightNumber);
     }
 }
