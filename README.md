@@ -44,7 +44,7 @@ Konservativ: gesetzte Werte werden nie überschrieben; ohne Flugzeit wird nichts
 (die Spalte bleibt dann leer, statt eine Zahl zu raten). Ein Fehler im Fix kann eine
 PIREP-Einreichung nicht kippen — er wird geloggt und geschluckt.
 
-### 2. Flight-Number-Data-Hygiene (`FlightNumberObserver`)
+### 2. Flight-Number-Hard-Block (`FlightNumberObserver`)
 
 **Symptom:** Ein Personal-/Freiflug (z.B. das DisposableSpecial-Modul) kann mit
 `flight_number = 0` gespeichert werden — das Formular lehnt nur ein *leeres* Feld ab,
@@ -55,12 +55,21 @@ Identifiers, obwohl das Modul meist einen echten `callsign` (z.B. „7ME") geset
 **Warum kein Core-Fix wie bei den Block-Zeiten:** `flights.flight_number` ist
 `int(10) unsigned NOT NULL` — eine Normalisierung auf `null` würde den Save entweder
 hart brechen oder (da dieser Server ohne `STRICT_TRANS_TABLES` läuft) klaglos wieder
-auf `0` zurückfallen. Aus dem gleichen Grund korrigiert dieser Observer **nichts** und
-blockiert auch keinen Save — er protokolliert nur (`Log::info`, nie fehlschlagend),
-damit wiederkehrende Fälle im Log auffallen, statt erst per Pilot-Meldung bekannt zu
-werden. Die eigentliche Reparatur gehört auf die Consumer-Seite: `callsign` vor
-`flight_number` bevorzugen, genau wie phpVMS' eigener `Flight::atc()`-Accessor es
-bereits tut.
+auf `0` zurückfallen.
+
+**Fix:** dieser Observer wirft eine Exception und blockiert damit den Save komplett,
+sobald `flight_number <= 0` ist. Kein stilles `return false`: Das Formular, das diesen
+Bug auslöst, prüft den Rückgabewert von `save()` nirgends und legt danach *unbedingt*
+eine Buchung (`Bid`) gegen die Flight-ID an, inkl. Erfolgsmeldung — ein nur per
+`return false` verworfener Save hätte also eine kaputte Buchung erzeugt, die wie ein
+Erfolg aussieht. Die Exception bricht die gesamte Anfrage ab, *bevor* die Buchung
+entsteht. Der Pilot sieht dafür Laravels generische Fehlerseite statt einer
+maßgeschneiderten Meldung (wir dürfen das auslösende Formular nicht anfassen) —
+bewusster Kompromiss: lieber hässlich-aber-ehrlich als hübsch-aber-falsch.
+
+Die zusätzliche Client-Reparatur bleibt bestehen und ist weiterhin die primäre
+Abhilfe für bereits bestehende Fälle: `callsign` wird vor `flight_number` bevorzugt
+angezeigt, genau wie phpVMS' eigener `Flight::atc()`-Accessor es bereits tut.
 
 ## Achtung: der Cast-Bug bleibt bestehen
 
@@ -122,7 +131,7 @@ Conservative by design: existing values are never overwritten, and without a fli
 is invented (the column simply stays empty rather than carrying a guess). A failure inside the fix
 can never break a PIREP submission — it is logged and swallowed.
 
-### 2. Flight-number data hygiene (`FlightNumberObserver`)
+### 2. Flight-number hard block (`FlightNumberObserver`)
 
 **Symptom:** a Personal/Free flight (e.g. via the DisposableSpecial module) can be
 saved with `flight_number = 0` — the form only rejects an *empty* field, a literal
@@ -133,11 +142,21 @@ module usually did set a real `callsign` (e.g. "7ME").
 **Why not a core fix like the block-time one:** `flights.flight_number` is
 `int(10) unsigned NOT NULL` — normalizing it to `null` would either hard-break the
 save, or (since this server runs without `STRICT_TRANS_TABLES`) silently fall back to
-`0` again anyway. For the same reason this observer corrects **nothing** and never
-blocks a save — it only logs (`Log::info`, never fails) so recurring cases show up in
-the log instead of only being found out via a pilot report. The actual fix belongs on
-the consumer side: prefer `callsign` over `flight_number`, exactly like phpVMS's own
-`Flight::atc()` accessor already does.
+`0` again anyway.
+
+**Fix:** this observer throws an exception and blocks the save outright once
+`flight_number <= 0`. Not a silent `return false`: the form that triggers this bug
+never checks `save()`'s return value and unconditionally creates a booking (`Bid`)
+against the flight ID afterward, plus a success message — a save merely dropped via
+`return false` would have produced a broken booking that looks like a success. The
+exception aborts the whole request *before* that booking is created. The pilot sees
+Laravel's generic error page instead of a tailored message (we're not allowed to
+touch the offending form) — a deliberate trade-off: ugly-but-honest beats
+pretty-but-wrong.
+
+The client-side fix remains in place and is still the primary remedy for already-
+existing cases: `callsign` is preferred over `flight_number` everywhere, exactly like
+phpVMS's own `Flight::atc()` accessor already does.
 
 ## Careful: the cast bug itself remains
 

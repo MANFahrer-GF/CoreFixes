@@ -22,11 +22,11 @@ use Modules\CoreFixes\Observers\PirepBlockTimeObserver;
  *   1. PirepBlockTimeObserver — block_off_time/block_on_time bleiben NULL, weil
  *      der Core-Fallback in PirepService::create() am CarbonCast scheitert
  *      (NULL liest sich als "jetzt" und ist damit truthy).
- *   2. FlightNumberObserver — protokolliert (nicht blockierend) Flights mit
- *      `flight_number <= 0` (typisch: DisposableSpecial-Freiflug-Formular).
- *      Reine Sichtbarkeit, keine Datenmutation — siehe der Klasse eigener
- *      Doc-Kommentar fuer die ausfuehrliche Begruendung (NOT-NULL-Spalte +
- *      AeroACARS-Deserializer-Risiko).
+ *   2. FlightNumberObserver — blockiert (wirft eine Exception) Flight-Saves
+ *      mit `flight_number <= 0` (typisch: DisposableSpecial-Freiflug-
+ *      Formular). Keine stille `return false` — siehe der Klasse eigener
+ *      Doc-Kommentar, warum das hier eine falsche Erfolgsmeldung + eine
+ *      Bid gegen einen nie gespeicherten Flight erzeugen wuerde.
  */
 final class CoreFixesServiceProvider extends ServiceProvider
 {
