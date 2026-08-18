@@ -1,8 +1,8 @@
 {
     "name": "CoreFixes",
     "alias": "corefixes",
-    "version": "1.2.1",
-    "description": "GSG: haelt Fixes fuer phpVMS-Core-Bugs update-fest. Statt Core-Dateien zu patchen (die jedes phpVMS-Update ueberschreibt), haengt sich dieses Modul von aussen in die Model-Events und korrigiert das Verhalten. Fix 1: PIREP-Block-Zeiten (block_off_time/block_on_time bleiben NULL, weil PirepService' eigener Fallback am CarbonCast scheitert). Fix 2: Flight-Number-Hard-Block (blockiert Flight-Saves mit flight_number<=0, z.B. aus Freiflug-Formularen, per Exception).",
+    "version": "1.3.0",
+    "description": "GSG: haelt Fixes fuer phpVMS-Core- und Fremdmodul-Bugs update-fest. Statt fremde Dateien zu patchen (die jedes Update ueberschreibt), haengt sich dieses Modul von aussen ein. Fix 1: PIREP-Block-Zeiten (block_off_time/block_on_time bleiben NULL, weil PirepService' eigener Fallback am CarbonCast scheitert). Fix 2: Flight-Number-Hard-Block (blockiert Flight-Saves mit flight_number<=0, z.B. aus Freiflug-Formularen, per Exception). Fix 3: DisposableSpecials Wochen-Cron sprengte an zwei Stellen das MySQL-Platzhalterlimit (Fehler 1390) und war 14 Wochen still tot — die Service-Klasse wird im Container ausgetauscht statt die Moduldatei zu patchen.",
     "keywords": [
         "phpvms",
         "core",
@@ -10,7 +10,10 @@
         "pirep",
         "block-time",
         "flight-number",
-        "gsg"
+        "gsg",
+        "cron",
+        "disposablespecial",
+        "placeholder-limit"
     ],
     "active": 1,
     "order": 0,

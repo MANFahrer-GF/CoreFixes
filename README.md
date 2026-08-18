@@ -9,8 +9,11 @@ Einen Core-Bug repariert man normalerweise, indem man die Datei unter `app/` än
 Das Problem: Jedes phpVMS-Update überschreibt sie, und der Bug ist still wieder da —
 auf GSG ist genau das schon mehrfach passiert (`acars`-Fuel-Fillable, Block-Zeiten).
 
-Dieses Modul fasst **keine einzige Core-Datei an**. Es hängt sich von außen in die
-Model-Events und korrigiert das Verhalten. Ein phpVMS-Update kann ihm nichts anhaben.
+Dieses Modul fasst **keine einzige fremde Datei an**. Es hängt sich von außen ein — in die
+Model-Events, oder (Fix 3) in den Service-Container — und korrigiert das Verhalten. Weder ein
+phpVMS- noch ein Modul-Update kann ihm etwas anhaben.
+
+Seit Fix 3 gilt dasselbe Prinzip auch für **Fremdmodule**, nicht nur für den Core.
 
 ## Enthaltene Fixes
 
@@ -75,6 +78,72 @@ Die zusätzliche Client-Reparatur bleibt bestehen und ist weiterhin die primäre
 Abhilfe für bereits bestehende Fälle: `callsign` wird vor `flight_number` bevorzugt
 angezeigt, genau wie phpVMS' eigener `Flight::atc()`-Accessor es bereits tut.
 
+### 3. Wochen-Cron gegen das Platzhalterlimit (`DisposableCronFix`)
+
+**Symptom:** `php artisan cron:weekly` bricht ab mit
+`SQLSTATE[HY000] 1390 Prepared statement contains too many placeholders`. Der
+Absturz landet ausschließlich im Log — nach außen fällt nichts auf. Auf GSG war
+der Wochen-Cron dadurch vom **10.05.2026 bis 18.08.2026**, also rund 14 Wochen,
+still tot.
+
+**Ursache:** MySQL erlaubt höchstens **65.535 Platzhalter** je Anweisung.
+DisposableSpecial baut an **zwei** Stellen eine Abfrage über eine komplette
+Id-Liste:
+
+```php
+// CleanAcarsRecords() — hier 195.617 Ids
+$records = Acars::withCount(['pirep'])->having('pirep_count', 0)->pluck('id')->toArray();
+$acars   = Acars::whereIn('id', $records)->delete();
+
+// CleanRelationships() — hier 189.525 Flüge
+$flights = Flight::pluck('id')->toArray();
+DB::table('flight_fare')->whereNotIn('flight_id', $flights)->delete();
+```
+
+Es ist also keine Einzelstelle, sondern eine **Bauart**: jedes `whereIn`/
+`whereNotIn`, dessen Liste aus einem `pluck()` über eine wachsende Tabelle
+kommt, kippt irgendwann. Wer nur die erste Stelle repariert, sieht den Cron
+sofort an der zweiten sterben.
+
+**Reichweite:** DisposableSpecial ist der **letzte** von fünf Listenern am
+`CronWeekly`-Event, deshalb blieb der Schaden klein — mit ausgefallen ist nur
+`CleanRelationships()`. Bei einem Listener weiter vorn wäre das anders. Die
+Listener-Reihenfolge (`Event::getListeners(CronWeekly::class)`) gehört deshalb
+zur Diagnose.
+
+**Fix:** Beide Methoden werden überschrieben — `CleanAcarsRecords()` löscht in
+Blöcken zu 1.000, `CleanRelationships()` nutzt eine `whereNotExists`-Unterabfrage
+und damit gar keine Platzhalter mehr. Alles andere erbt unverändert.
+
+Der `whereNotNull`-Riegel in der Unterabfrage ist **Bedeutung, keine Kosmetik**:
+`NULL NOT IN (...)` ist in SQL unbekannt und traf damit nie zu. Ohne den Riegel
+würden Zeilen mit leerem Fremdschlüssel neuerdings mitgelöscht — eine stille
+Verhaltensänderung gegenüber dem Original.
+
+**Warum im Container statt in der Moduldatei:** ein Patch an
+`modules/DisposableSpecial/` ist beim nächsten Modul-Update weg, und der Fehler
+käme still zurück — genau die Falle, wegen der es dieses Modul überhaupt gibt.
+Alle vier Aufrufe im Listener holen den Dienst über
+`app(DS_CronServices::class)`, also über den Container. Eine einzige Bindung
+deckt sie ab, die Fremddatei bleibt unberührt.
+
+**Selbstprüfung:** Der Fix hält den Prüfsummen-Stand der beiden Original-Methoden
+fest und vergleicht ihn bei jedem Lauf. Ändert ein Modul-Update die Vorlage,
+erscheint eine Warnung im Log — sonst würde dieser Override eine spätere
+Korrektur von DisposableSpecial still verdecken. Die Prüfung fällt bewusst leise
+aus, wenn sie selbst scheitert: ein Aufräum-Cron darf nicht an seiner eigenen
+Selbstkontrolle sterben.
+
+**Nicht angetastet:** die Auswahl der zu löschenden Zeilen. `withCount(['pirep'])`
+zählt über die Beziehung, und `Pirep` nutzt SoftDeletes — soft-gelöschte PIREPs
+gelten dem Modul also als weg, samt ihrer Positionsspuren. Das ist seit jeher so
+und bleibt so.
+
+⚠️ **Falle beim Trockenlauf:** Wer vorher zählen will, wieviel gelöscht würde,
+muss **genau die Abfrage des Codes** nachbauen. Ein naheliegendes
+`LEFT JOIN pireps` zählt anders (bei uns 195.617 statt 242.400), weil es
+soft-gelöschte PIREPs als vorhanden ansieht.
+
 ## Achtung: der Cast-Bug bleibt bestehen
 
 Das Modul sorgt dafür, dass die Spalten **gefüllt** werden. Der `CarbonCast` selbst ist
@@ -100,8 +169,11 @@ A phpVMS 7 module that keeps fixes for **core bugs update-proof**.
 The usual way to fix a core bug is to edit the file under `app/`. The problem: every phpVMS
 update overwrites it and the bug is silently back. That has bitten us more than once.
 
-This module touches **no core file at all**. It hooks into the model events from the outside
-and corrects the behaviour. A phpVMS update cannot undo it.
+This module touches **no third-party file at all**. It hooks in from the outside — into the model
+events, or (fix 3) into the service container — and corrects the behaviour. Neither a phpVMS nor a
+module update can undo it.
+
+Since fix 3 the same principle covers **third-party modules**, not just the core.
 
 ## Included fixes
 
@@ -164,6 +236,68 @@ Laravel's generic, always-English default error page.
 The client-side fix remains in place and is still the primary remedy for already-
 existing cases: `callsign` is preferred over `flight_number` everywhere, exactly like
 phpVMS's own `Flight::atc()` accessor already does.
+
+### 3. Weekly cron vs. the placeholder limit (`DisposableCronFix`)
+
+**Symptom:** `php artisan cron:weekly` aborts with
+`SQLSTATE[HY000] 1390 Prepared statement contains too many placeholders`. The
+crash only ever reaches the log — nothing is visible from the outside. On our
+install the weekly cron was silently dead for about 14 weeks because of it.
+
+**Root cause:** MySQL allows at most **65,535 placeholders** per statement.
+DisposableSpecial builds a query over a complete ID list in **two** places:
+
+```php
+// CleanAcarsRecords() — 195,617 IDs here
+$records = Acars::withCount(['pirep'])->having('pirep_count', 0)->pluck('id')->toArray();
+$acars   = Acars::whereIn('id', $records)->delete();
+
+// CleanRelationships() — 189,525 flights here
+$flights = Flight::pluck('id')->toArray();
+DB::table('flight_fare')->whereNotIn('flight_id', $flights)->delete();
+```
+
+This is not a single site but a **shape**: any `whereIn`/`whereNotIn` whose list
+comes from a `pluck()` over a growing table will eventually tip over. Fix only
+the first one and the cron dies at the second immediately.
+
+**Blast radius:** DisposableSpecial is the **last** of five listeners on the
+`CronWeekly` event, which kept the damage small — only `CleanRelationships()`
+went down with it. A listener further up the chain would be a different story,
+so the listener order (`Event::getListeners(CronWeekly::class)`) is part of the
+diagnosis.
+
+**Fix:** both methods are overridden — `CleanAcarsRecords()` deletes in chunks of
+1,000, `CleanRelationships()` uses a `whereNotExists` subquery and therefore no
+placeholders at all. Everything else is inherited unchanged.
+
+The `whereNotNull` guard inside the subquery is **semantics, not cosmetics**:
+`NULL NOT IN (...)` is unknown in SQL and therefore never matched. Without the
+guard, rows with an empty foreign key would newly be deleted — a silent
+behavioural change against the original.
+
+**Why in the container rather than in the module file:** a patch to
+`modules/DisposableSpecial/` is gone with the next module update and the bug
+would silently return — precisely the trap this module exists for. All four call
+sites in the listener resolve the service through `app(DS_CronServices::class)`,
+i.e. through the container. A single binding covers them all and the third-party
+file stays untouched.
+
+**Self-check:** the fix records a checksum of both original methods and compares
+it on every run. If a module update changes the template, a warning appears in
+the log — otherwise this override would silently mask a later fix from
+DisposableSpecial. The check fails quietly if it breaks itself: a cleanup cron
+must not die on its own self-inspection.
+
+**Left alone:** which rows are selected for deletion. `withCount(['pirep'])`
+counts through the relation, and `Pirep` uses SoftDeletes — so the module treats
+soft-deleted PIREPs as gone, along with their position trails. That has always
+been the case and stays that way.
+
+⚠️ **Dry-run trap:** if you want to count what would be deleted beforehand, build
+**exactly the query the code uses**. An obvious `LEFT JOIN pireps` counts
+differently (195,617 instead of 242,400 for us) because it treats soft-deleted
+PIREPs as present.
 
 ## Careful: the cast bug itself remains
 

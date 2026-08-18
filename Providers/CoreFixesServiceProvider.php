@@ -9,6 +9,8 @@ use App\Models\Pirep;
 use Illuminate\Support\ServiceProvider;
 use Modules\CoreFixes\Observers\FlightNumberObserver;
 use Modules\CoreFixes\Observers\PirepBlockTimeObserver;
+use Modules\CoreFixes\Services\DisposableCronFix;
+use Modules\DisposableSpecial\Services\DS_CronServices;
 
 /**
  * CoreFixes — haelt Korrekturen an phpVMS-Core-Bugs update-fest.
@@ -27,6 +29,11 @@ use Modules\CoreFixes\Observers\PirepBlockTimeObserver;
  *      Formular). Keine stille `return false` — siehe der Klasse eigener
  *      Doc-Kommentar, warum das hier eine falsche Erfolgsmeldung + eine
  *      Bid gegen einen nie gespeicherten Flight erzeugen wuerde.
+ *   3. DisposableCronFix — DisposableSpecials Wochen-Cron sprengte an zwei
+ *      Stellen das MySQL-Platzhalterlimit (Fehler 1390) und war dadurch
+ *      14 Wochen still tot. Gleiches Prinzip wie oben, nur eine Ebene hoeher:
+ *      statt die Moduldatei zu patchen (weg beim naechsten Modul-Update),
+ *      wird die Service-Klasse im Container ausgetauscht.
  */
 final class CoreFixesServiceProvider extends ServiceProvider
 {
@@ -38,6 +45,8 @@ final class CoreFixesServiceProvider extends ServiceProvider
 
     public function register(): void
     {
-        //
+        // Alle vier Aufrufe in DisposableSpecials Gen_Cron holen den Dienst ueber
+        // app(DS_CronServices::class) — diese eine Bindung deckt sie alle ab.
+        $this->app->bind(DS_CronServices::class, DisposableCronFix::class);
     }
 }
