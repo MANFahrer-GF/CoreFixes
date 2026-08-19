@@ -10,6 +10,8 @@ use Illuminate\Support\ServiceProvider;
 use Modules\CoreFixes\Observers\FlightNumberObserver;
 use Modules\CoreFixes\Observers\PirepBlockTimeObserver;
 use Modules\CoreFixes\Services\DisposableCronFix;
+use Modules\CoreFixes\Widgets\ActiveBookingsFix;
+use Modules\DisposableBasic\Widgets\ActiveBookings;
 use Modules\DisposableSpecial\Services\DS_CronServices;
 
 /**
@@ -34,6 +36,11 @@ use Modules\DisposableSpecial\Services\DS_CronServices;
  *      14 Wochen still tot. Gleiches Prinzip wie oben, nur eine Ebene hoeher:
  *      statt die Moduldatei zu patchen (weg beim naechsten Modul-Update),
  *      wird die Service-Klasse im Container ausgetauscht.
+ *   4. ActiveBookingsFix — DisposableBasics Buchungs-Widget riss die Seite mit
+ *      HTTP 500 mit, wenn eine Buchung kein OFP-XML hat oder auf einer weich
+ *      geloeschten Maschine sitzt (beide Wege reproduziert). Wieder Container-
+ *      Tausch statt Dateipatch; die Ansicht selbst bleibt unangetastet und
+ *      bekommt nur noch darstellbare Zeilen.
  */
 final class CoreFixesServiceProvider extends ServiceProvider
 {
@@ -48,5 +55,12 @@ final class CoreFixesServiceProvider extends ServiceProvider
         // Alle vier Aufrufe in DisposableSpecials Gen_Cron holen den Dienst ueber
         // app(DS_CronServices::class) — diese eine Bindung deckt sie alle ab.
         $this->app->bind(DS_CronServices::class, DisposableCronFix::class);
+
+        // Arrilot baut jedes Widget ueber den Container
+        // (AbstractWidgetFactory::instantiateWidget, `$this->app->make($widgetClass)`),
+        // deshalb greift eine Bindung auch hier. Die Pruefung eine Zeile davor
+        // laeuft gegen den KLASSENNAMEN, nicht gegen die Instanz — unsere
+        // Ableitung erbt von der Vorlage und besteht sie damit.
+        $this->app->bind(ActiveBookings::class, ActiveBookingsFix::class);
     }
 }
