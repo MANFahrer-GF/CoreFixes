@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Modules\CoreFixes\Providers;
 
+use App\Http\Controllers\Api\AcarsController;
 use App\Models\Flight;
 use App\Models\Pirep;
 use Illuminate\Support\ServiceProvider;
+use Modules\CoreFixes\Http\Controllers\AcarsControllerFix;
 use Modules\CoreFixes\Observers\FlightNumberObserver;
 use Modules\CoreFixes\Observers\PirepBlockTimeObserver;
 use Modules\CoreFixes\Services\DisposableCronFix;
@@ -41,6 +43,13 @@ use Modules\DisposableSpecial\Services\DS_CronServices;
  *      geloeschten Maschine sitzt (beide Wege reproduziert). Wieder Container-
  *      Tausch statt Dateipatch; die Ansicht selbst bleibt unangetastet und
  *      bekommt nur noch darstellbare Zeilen.
+ *   5. AcarsControllerFix — ein wiederholt gesendeter Positions-Batch legte
+ *      DOPPELTE Zeilen an (gemessen 19-122 je Flug). Der Core hat fuer
+ *      diesen Fall bereits einen idempotenten Zweig, benutzt darin aber den
+ *      Query-Builder — der setzt keine Timestamps, wodurch `created_at`
+ *      NULL bliebe und die Track-Sortierung kippen wuerde. Der Fix nimmt
+ *      an dieser einen Stelle Eloquent. Wieder Container-Tausch statt
+ *      Dateipatch.
  */
 final class CoreFixesServiceProvider extends ServiceProvider
 {
@@ -62,5 +71,13 @@ final class CoreFixesServiceProvider extends ServiceProvider
         // laeuft gegen den KLASSENNAMEN, nicht gegen die Instanz — unsere
         // Ableitung erbt von der Vorlage und besteht sie damit.
         $this->app->bind(ActiveBookings::class, ActiveBookingsFix::class);
+
+        // Laravels ControllerDispatcher loest Controller ueber den Container
+        // auf (`Route::controller` -> `$container->make($class)`), deshalb
+        // greift die Bindung fuer alle ACARS-Routen, ohne dass eine Route
+        // umgeschrieben werden muss. Die Ableitung erbt saemtliche uebrigen
+        // Endpunkte (acars_get, acars_logs, acars_events, route_*) und
+        // aendert nur `acars_store`.
+        $this->app->bind(AcarsController::class, AcarsControllerFix::class);
     }
 }

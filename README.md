@@ -310,3 +310,41 @@ test for plausibility.
 
 Drop the module into `modules/CoreFixes`, enable it under Admin → Modules, clear the caches.
 No migration, no configuration, no dependencies.
+
+## Fix 5 — doppelte ACARS-Positionen bei wiederholtem Senden
+
+**Befund (21.08.2026, 6 GSG-Fluege geprueft):** jeder Flug trug 19–122 doppelte
+Positionszeilen. Der parallele MQTT-Strom zum VPS-Recorder war bei denselben
+Fluegen dublettenfrei (4.448 von 4.461 Punkten eindeutig) — die Erfassung war
+sauber, es lag am Weg zu phpVMS.
+
+**Kette:** Der ACARS-Client bricht einen Positions-POST ab (Timeout waehrend
+einer Lastspitze). phpVMS merkt davon nichts, weil `ignore_user_abort` erst bei
+Output greift und der Insert-Loop keinen erzeugt — es schreibt alle Zeilen und
+antwortet 200. Der Client haelt den Batch fuer verloren und sendet erneut.
+
+**Warum nicht einfach der Core-Zweig:** `AcarsController::acars_store` kennt den
+Fall bereits — traegt eine Position ein `id`-Feld, ruft er
+`Acars::updateOrInsert()`. Das ist aber der **Query-Builder**: keine Timestamps,
+keine Casts, kein `$fillable`. Nachgemessen in der lokalen phpVMS-7.0.8-Sandbox:
+`created_at` und `updated_at` bleiben **NULL**. Auf GSG sortieren sowohl der
+Core-Track (`Pirep::acars()` → `orderBy('created_at')`) als auch das GsgLogbook
+genau danach — der Core-Zweig haette die Zeitachse zerstoert.
+
+**Fix:** derselbe Gedanke, nur mit Eloquent (`updateOrCreate`). Der Schluessel
+enthaelt bewusst auch die `pirep_id`, sonst koennte ein Client mit einer fremden
+`id` eine fremde Position ueberschreiben — der Endpunkt prueft nur, ob der PIREP
+existiert und nicht storniert ist.
+
+**Verifiziert** (lokale Sandbox, phpVMS 7.0.8, PHP 8.3):
+
+| Fall | Ergebnis |
+|---|---|
+| Batch mit `id`, zweimal gesendet | 2 Zeilen bleiben 2 Zeilen |
+| … `created_at` / `updated_at` | gesetzt |
+| Gegenprobe: Modul deaktiviert | 1 Zeile, `created_at` **NULL** |
+| Batch ohne `id`, zweimal | 2 Zeilen (Altverhalten unveraendert) |
+| Fremde `id` eines anderen PIREP | fremde Zeile unveraendert |
+
+**Achtung bei phpVMS-Updates:** `acars_store` ist eine Kopie der Core-Methode mit
+einer geaenderten Zeile. Nach einem Core-Update gegen das Original vergleichen.
