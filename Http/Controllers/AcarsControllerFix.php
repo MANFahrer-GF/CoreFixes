@@ -94,6 +94,21 @@ class AcarsControllerFix extends AcarsController
                 }
             }
 
+            // QS-Befund 22.08.2026: eine `id` laenger als die Spalte
+            // (varchar(36)) wird je nach sql_mode still gekuerzt (Sandbox)
+            // oder wirft — GSG-Live laeuft mit STRICT_TRANS_TABLES, dort
+            // faengt der catch unten die QueryException und die Position
+            // waere still verloren. Ein zu langer Schluessel ist ausserdem
+            // gefaehrlich: zwei verschiedene Werte mit gleichem 36-Zeichen-
+            // Anfang wuerden nach dem Kuerzen dieselbe Zeile treffen.
+            // Deshalb: ungueltigen Schluessel verwerfen und die Position
+            // ganz normal anlegen — lieber eine Zeile zu viel als eine
+            // verlorene oder eine falsch zusammengefuehrte.
+            if (isset($position['id']) && strlen((string) $position['id']) > 36) {
+                Log::info('ACARS position with oversized id ('.strlen((string) $position['id']).' chars) — treated as unkeyed');
+                unset($position['id']);
+            }
+
             try {
                 if (!empty($position['id'])) {
                     // HIER liegt der ganze Unterschied zum Core: Eloquent
