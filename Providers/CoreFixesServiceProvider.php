@@ -15,7 +15,9 @@ use Modules\CoreFixes\Observers\FlightNumberObserver;
 use Modules\CoreFixes\Observers\PirepBlockTimeObserver;
 use Modules\CoreFixes\Services\DisposableCronFix;
 use Modules\CoreFixes\Widgets\ActiveBookingsFix;
+use Modules\CoreFixes\Widgets\LeaderBoardFix;
 use Modules\DisposableBasic\Widgets\ActiveBookings;
+use Modules\DisposableBasic\Widgets\LeaderBoard;
 use Modules\DisposableSpecial\Services\DS_CronServices;
 
 /**
@@ -41,6 +43,8 @@ use Modules\DisposableSpecial\Services\DS_CronServices;
  *      statt die Moduldatei zu patchen (weg beim naechsten Modul-Update),
  *      wird die Service-Klasse im Container ausgetauscht.
  *   4. ActiveBookingsFix — DisposableBasics Buchungs-Widget riss die Seite mit
+ *   5. LeaderBoardFix — Bestenliste beschriftete einen Durchschnitt wie einen Bestwert
+ *   6. Zeitplan-Sperren — withoutOverlapping() war ohne Cache wirkungslos
  *      HTTP 500 mit, wenn eine Buchung kein OFP-XML hat oder auf einer weich
  *      geloeschten Maschine sitzt (beide Wege reproduziert). Wieder Container-
  *      Tausch statt Dateipatch; die Ansicht selbst bleibt unangetastet und
@@ -117,6 +121,11 @@ final class CoreFixesServiceProvider extends ServiceProvider
         // laeuft gegen den KLASSENNAMEN, nicht gegen die Instanz — unsere
         // Ableitung erbt von der Vorlage und besteht sie damit.
         $this->app->bind(ActiveBookings::class, ActiveBookingsFix::class);
+
+        // Bestenliste: Durchschnitts-Typen als solche beschriften. Die
+        // Theme-Fassung der Ansicht wirft die richtige Überschrift weg —
+        // siehe LeaderBoardFix.
+        $this->app->bind(LeaderBoard::class, LeaderBoardFix::class);
 
         // Laravels ControllerDispatcher loest Controller ueber den Container
         // auf (`Route::controller` -> `$container->make($class)`), deshalb

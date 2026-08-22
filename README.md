@@ -373,3 +373,27 @@ keine Abfrage, keine Ansicht, keine Route — die Sperrdateien liegen unter
 Der Eingriff prüft vorher, ob der Anwendungs-Cache wirklich nichts behält. Auf einer
 Installation mit funktionierendem Cache (etwa Redis) bleibt alles unangetastet — dort
 gelten Sperren womöglich serverübergreifend, und das wäre die bessere Wahl.
+
+## Bestenliste: Durchschnitt als solcher beschriftet (v1.7.0)
+
+**Gemeldet 22.08.2026:** „Die Bestenlisten passen auch nicht, ich hatte eine 100er
+Landung!" — die Liste zeigte 90.
+
+Nachgerechnet stimmten beide Zahlen: 100 war der beste Flug im August, 89,8 der
+Monatsdurchschnitt über neun Flüge. **Alle drei Piloten der Liste hatten eine 100** —
+den Ausschlag gibt der Schnitt.
+
+Der Fehler steckt in der Beschriftung. `DB_StatServices::LeaderBoard()` rechnet bei
+`score` und `lrate` mit `avg(...)`, und das Widget liefert dafür extra
+`column_title = „Durchschnitt"`. Die **Theme-eigene** Fassung der Ansicht benutzt aber
+`$footer_type` als Spaltenkopf („Ergebnis") und wirft die richtige Überschrift weg.
+
+Verschärfend: daneben stehen „Höchste/Niedrigste Landerate", die tatsächlich Bestwerte
+zeigen. Ein Durchschnitt in derselben Wortwahl daneben liest sich zwangsläufig als
+Bestwert.
+
+Repariert wird nicht die Ansicht (die gehört SPTheme und ist beim nächsten Update weg),
+sondern der Text, den sie anzeigt: bei Durchschnitts-Typen bekommt die Spalte ein **Ø**
+davor. Wirkt in beiden Fassungen. Zahl, Sortierung und Auswahl bleiben unverändert —
+die waren nie falsch.
+
