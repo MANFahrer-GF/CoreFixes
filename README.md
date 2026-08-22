@@ -348,3 +348,28 @@ existiert und nicht storniert ist.
 
 **Achtung bei phpVMS-Updates:** `acars_store` ist eine Kopie der Core-Methode mit
 einer geaenderten Zeile. Nach einem Core-Update gegen das Original vergleichen.
+
+## Zeitplan-Sperren ohne Anwendungs-Cache (v1.6.0)
+
+**Anlass 22.08.2026:** Der tägliche AeroACARS-Health-Report kam **zweimal** — obwohl
+er ein `withoutOverlapping()` trägt. Der Schutz arbeitet über den Cache, und auf GSG
+steht `CACHE_DRIVER=null`. Gemessen:
+
+```
+Cache behält Werte: NEIN
+Mutex 1. Versuch: belegt
+Mutex 2. Versuch: BELEGT — kein Schutz!
+```
+
+Der Mutex ließ sich beliebig oft belegen. Betroffen war **jeder** Überlappungsschutz
+im phpVMS, nicht nur dieser Bericht.
+
+⚠️ **`CACHE_DRIVER` bleibt auf `null`** — bewusste Entscheidung: mit Anwendungs-Cache
+erscheinen PIREPs und Bewertungen verzögert. Stattdessen bekommt **nur der Zeitplan**
+einen eigenen Speicher (`Schedule::useCache('file')`). Die Anwendung cacht dadurch
+keine Abfrage, keine Ansicht, keine Route — die Sperrdateien liegen unter
+`storage/framework/cache/data` und räumen sich selbst ab.
+
+Der Eingriff prüft vorher, ob der Anwendungs-Cache wirklich nichts behält. Auf einer
+Installation mit funktionierendem Cache (etwa Redis) bleibt alles unangetastet — dort
+gelten Sperren womöglich serverübergreifend, und das wäre die bessere Wahl.

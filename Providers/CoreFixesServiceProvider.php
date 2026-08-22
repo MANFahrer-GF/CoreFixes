@@ -7,6 +7,8 @@ namespace Modules\CoreFixes\Providers;
 use App\Http\Controllers\Api\AcarsController;
 use App\Models\Flight;
 use App\Models\Pirep;
+use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
 use Modules\CoreFixes\Http\Controllers\AcarsControllerFix;
 use Modules\CoreFixes\Observers\FlightNumberObserver;
@@ -57,6 +59,50 @@ final class CoreFixesServiceProvider extends ServiceProvider
     {
         Pirep::observe(PirepBlockTimeObserver::class);
         Flight::observe(FlightNumberObserver::class);
+        $this->zeitplanSperrenReparieren();
+    }
+
+    /**
+     * Dem ZEITPLAN einen eigenen Speicher für seine Sperren geben — ohne die
+     * Anwendung cachen zu lassen.
+     *
+     * ⚠️ Der Anlass, 22.08.2026: Der tägliche Health-Report kam zweimal, obwohl er
+     * ein `withoutOverlapping()` trägt. Dieser Schutz arbeitet über den Cache, und
+     * auf GSG steht `CACHE_DRIVER=null`. Gemessen: der Mutex ließ sich zweimal
+     * hintereinander belegen — er hat NIE blockiert. Betroffen war jeder
+     * Überlappungsschutz im ganzen phpVMS, nicht nur dieser eine Bericht.
+     *
+     * ⚠️ `CACHE_DRIVER` bleibt bewusst auf `null` (Vorgabe Thomas): mit
+     * Anwendungs-Cache erscheinen PIREPs und Bewertungen verzögert. `useCache()`
+     * betrifft AUSSCHLIESSLICH die Sperrdateien des Zeitplans — die Anwendung cacht
+     * dadurch keine einzige Abfrage, keine Ansicht, keine Route.
+     *
+     * Die Sperren landen unter `storage/framework/cache/data` und räumen sich
+     * selbst ab (Laravel setzt eine Ablaufzeit je Aufgabe).
+     */
+    private function zeitplanSperrenReparieren(): void
+    {
+        // Nur eingreifen, wenn der Anwendungs-Cache tatsächlich nichts behält —
+        // sonst nähme man einer Installation mit funktionierendem Cache ihre
+        // eigene Wahl (etwa Redis, wo Sperren serverübergreifend gelten).
+        if (config('cache.default') !== null && config('cache.default') !== '' && config('cache.default') !== 'null') {
+            return;
+        }
+
+        $this->app->booted(function (): void {
+            if (! $this->app->bound(Schedule::class)) {
+                return;
+            }
+            try {
+                $this->app->make(Schedule::class)->useCache('file');
+            } catch (\Throwable $e) {
+                // Ein fehlender file-Store darf den Start nicht verhindern; dann
+                // bleibt es beim alten Zustand (ungeschützt, aber lauffähig).
+                Log::warning('CoreFixes: Zeitplan-Sperren konnten nicht auf den Datei-Speicher gelegt werden', [
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        });
     }
 
     public function register(): void
