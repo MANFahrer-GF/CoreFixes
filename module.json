@@ -1,7 +1,7 @@
 {
     "name": "CoreFixes",
     "alias": "corefixes",
-    "version": "1.7.0",
+    "version": "1.10.0",
     "description": "GSG: haelt Fixes fuer phpVMS-Core- und Fremdmodul-Bugs update-fest. Statt fremde Dateien zu patchen (die jedes Update ueberschreibt), haengt sich dieses Modul von aussen ein. Fix 1: PIREP-Block-Zeiten (block_off_time/block_on_time bleiben NULL, weil PirepService' eigener Fallback am CarbonCast scheitert). Fix 2: Flight-Number-Hard-Block (blockiert Flight-Saves mit flight_number<=0, z.B. aus Freiflug-Formularen, per Exception). Fix 3: DisposableSpecials Wochen-Cron sprengte an zwei Stellen das MySQL-Platzhalterlimit (Fehler 1390) und war 14 Wochen still tot — die Service-Klasse wird im Container ausgetauscht statt die Moduldatei zu patchen. Fix 4: DisposableBasics Buchungs-Widget (DBasic::ActiveBookings) lieferte HTTP 500, wenn eine offene Buchung kein OFP-XML hat oder auf einer weich geloeschten Maschine sitzt — die Widget-Klasse wird im Container ausgetauscht und die Abfrage korrigiert, die Ansicht bleibt unangetastet. Fix 5: Ein wiederholt gesendeter ACARS-Positions-Batch legte doppelte Zeilen an (gemessen 19-122 je Flug) — der Core kennt fuer diesen Fall einen idempotenten Zweig, benutzt darin aber den Query-Builder ohne Timestamps; der Fix nimmt an dieser Stelle Eloquent und tauscht den Controller im Container.",
     "keywords": [
         "phpvms",

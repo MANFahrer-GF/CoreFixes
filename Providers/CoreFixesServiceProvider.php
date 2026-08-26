@@ -6,13 +6,16 @@ namespace Modules\CoreFixes\Providers;
 
 use App\Http\Controllers\Api\AcarsController;
 use App\Models\Flight;
+use App\Models\User;
 use App\Models\Pirep;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
 use Modules\CoreFixes\Http\Controllers\AcarsControllerFix;
+use Modules\CoreFixes\Http\Middleware\CartoSchluessel;
 use Modules\CoreFixes\Observers\FlightNumberObserver;
 use Modules\CoreFixes\Observers\PirepBlockTimeObserver;
+use Modules\CoreFixes\Observers\UserCallsignObserver;
 use Modules\CoreFixes\Services\DisposableCronFix;
 use Modules\CoreFixes\Widgets\ActiveBookingsFix;
 use Modules\CoreFixes\Widgets\LeaderBoardFix;
@@ -63,7 +66,10 @@ final class CoreFixesServiceProvider extends ServiceProvider
     {
         Pirep::observe(PirepBlockTimeObserver::class);
         Flight::observe(FlightNumberObserver::class);
+        User::observe(UserCallsignObserver::class);
         $this->zeitplanSperrenReparieren();
+        $this->cartoSchluesselEinhaengen();
+        $this->sperrdauerKuerzen();
     }
 
     /**
@@ -84,6 +90,145 @@ final class CoreFixesServiceProvider extends ServiceProvider
      * Die Sperren landen unter `storage/framework/cache/data` und räumen sich
      * selbst ab (Laravel setzt eine Ablaufzeit je Aufgabe).
      */
+    /**
+     * Den CARTO-Schluessel an die Kacheln der Karten haengen.
+     *
+     * Siehe `CartoSchluessel` fuer den Grund. Registriert wird in der
+     * Gruppe `web` — die Anmelde- und API-Wege brauchen es nicht, und je
+     * weniger Wege eine HTML-Umschrift beruehrt, desto besser.
+     *
+     * Ohne hinterlegten Schluessel tut die Zwischenschicht nichts; sie
+     * prueft das als Erstes und reicht die Antwort unveraendert weiter.
+     */
+    private function cartoSchluesselEinhaengen(): void
+    {
+        $this->app->booted(function (): void {
+            try {
+                /** @var \Illuminate\Routing\Router $router */
+                $router = $this->app->make(\Illuminate\Routing\Router::class);
+                $router->pushMiddlewareToGroup('web', CartoSchluessel::class);
+            } catch (\Throwable $e) {
+                // Ein fehlender Kartenschluessel darf die Seite nicht kosten.
+                Log::warning('[CoreFixes] CARTO-Zwischenschicht nicht registriert: '.$e->getMessage());
+            }
+        });
+    }
+
+    /** Wie lange eine Sperre haechstens gelten soll, in Minuten. */
+    private const SPERRE_MINUTEN = 10;
+
+    /** Bis zu welchem Takt (in Minuten) eine Aufgabe als "haeufig" gilt. */
+    private const HAEUFIG_BIS_MINUTEN = 5;
+
+    /**
+     * Die Vorgabe von `withoutOverlapping()` auf ein vertretbares Mass bringen.
+     *
+     * # Der Anlass (26.08.2026, gemeldet aus FleetDesk)
+     *
+     * `withoutOverlapping()` gilt in Laravel **1440 Minuten — vierundzwanzig
+     * Stunden** (`Event::$expiresAt`, Zeile 94). Solange der Mutex gar nicht
+     * funktionierte, war das folgenlos. Seit `zeitplanSperrenReparieren()`
+     * entsteht die Sperre wirklich — und damit auch ihre Kehrseite:
+     *
+     * Freigegeben wird sie in einem `finally` (Event.php:308). Ein normaler
+     * Fehler raeumt sie also ab. Ein hartes Ende nicht: Neustart, OOM-Kill,
+     * PHP-Fatal. Dann liegt die Sperrdatei **einen ganzen Tag** und blockiert
+     * jeden weiteren Start. Lautlos, ohne eine Zeile im Log.
+     *
+     * Bei einem taeglichen Bericht faellt das kaum auf. Bei einer
+     * Minuten-Aufgabe ist es ein Ausfall: In FleetDesk lagen sieben
+     * Gespraechsauftraege von drei Piloten liegen, ein Pilot meldete "die KI
+     * hat sich aufgehaengt".
+     *
+     * # Was hier passiert — und was NICHT
+     *
+     * Gekuerzt wird ausschliesslich die **unveraenderte Vorgabe** (1440), und
+     * nur bei Aufgaben, die mindestens alle fuenf Minuten laufen. Wer eine
+     * Dauer ausdruecklich gesetzt hat, hat eine Entscheidung getroffen — die
+     * wird nicht ueberschrieben.
+     *
+     * Und es geschieht nicht stillschweigend: Was gekuerzt wurde, steht im
+     * Log. Eine Zeitplan-Aenderung hinter dem Ruecken des Modulautors waere
+     * genau die Art von Stille, gegen die dieses Modul gebaut ist.
+     *
+     * # Warum zehn Minuten und nicht zwei
+     *
+     * Die Sperre muss laenger gelten als ein Lauf dauert, sonst startet der
+     * naechste mitten hinein — also genau das, was sie verhindern soll.
+     * `--max-time=55` begrenzt einen Warteschlangen-Arbeiter NICHT auf 55
+     * Sekunden: `Worker::stopIfNecessary()` prueft ZWISCHEN den Jobs
+     * (Worker.php:302). Ein einzelner Job, der auf eine fremde API wartet,
+     * laeuft zu Ende — und der Lauf mit ihm.
+     *
+     * Zehn Minuten sind grosszuegig genug fuer fast jede Minuten-Aufgabe und
+     * heilen eine liegengebliebene Sperre in einer Viertelstunde statt in
+     * einem Tag. Wer es enger braucht, setzt es selbst.
+     */
+    private function sperrdauerKuerzen(): void
+    {
+        $this->app->booted(function (): void {
+            if (! $this->app->bound(Schedule::class)) {
+                return;
+            }
+            try {
+                $schedule = $this->app->make(Schedule::class);
+                $gekuerzt = [];
+
+                foreach ($schedule->events() as $event) {
+                    if (! ($event->withoutOverlapping ?? false)) {
+                        continue;
+                    }
+                    // Nur die unangetastete Vorgabe. Eine ausdrueckliche
+                    // Wahl des Autors bleibt stehen.
+                    if (($event->expiresAt ?? null) !== 1440) {
+                        continue;
+                    }
+                    if (! self::laeuftHaeufig((string) ($event->expression ?? ''))) {
+                        continue;
+                    }
+                    $event->expiresAt = self::SPERRE_MINUTEN;
+                    $gekuerzt[] = trim((string) ($event->description ?: $event->command ?: $event->expression));
+                }
+
+                if ($gekuerzt !== []) {
+                    Log::info(
+                        '[CoreFixes] Sperrdauer auf '.self::SPERRE_MINUTEN.' Minuten gekuerzt '
+                        .'(Laravel-Vorgabe waeren 1440): '.implode(' | ', $gekuerzt)
+                    );
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[CoreFixes] Sperrdauer nicht angepasst: '.$e->getMessage());
+            }
+        });
+    }
+
+    /**
+     * Laeuft diese Aufgabe mindestens alle `HAEUFIG_BIS_MINUTEN` Minuten?
+     *
+     * Ausgewertet wird nur das Minutenfeld des Cron-Ausdrucks — mehr ist
+     * fuer die Frage nicht noetig, und ein halber Cron-Parser waere eine
+     * eigene Fehlerquelle.
+     *
+     *   "* * * * *"    → jede Minute        → ja
+     *   "*\/5 * * * *"  → alle fuenf Minuten → ja
+     *   "*\/15 * * * *" → alle 15 Minuten    → nein
+     *   "0 3 * * *"    → einmal taeglich    → nein
+     */
+    private static function laeuftHaeufig(string $ausdruck): bool
+    {
+        $felder = preg_split('/\s+/', trim($ausdruck)) ?: [];
+        $minute = $felder[0] ?? '';
+
+        if ($minute === '*') {
+            return true;
+        }
+        if (preg_match('#^\*/(\d+)$#', $minute, $m) === 1) {
+            return (int) $m[1] <= self::HAEUFIG_BIS_MINUTEN;
+        }
+
+        return false;
+    }
+
     private function zeitplanSperrenReparieren(): void
     {
         // Nur eingreifen, wenn der Anwendungs-Cache tatsächlich nichts behält —
