@@ -97,16 +97,27 @@ class CartoSchluessel
      */
     public static function schluessel(): string
     {
-        $ausEnv = (string) env('CARTO_API_KEY', '');
-
+        // ⚠ Ein EINTRAG schlaegt die `.env` — auch ein leerer.
+        //
+        // Die erste Fassung nahm die `.env`, sobald die Einstellung leer
+        // war. Damit liess sich der Schluessel ueber die Oberflaeche nicht
+        // loeschen: Das Haekchen leerte die Einstellung, und im naechsten
+        // Moment lieferte die `.env` ihn zurueck. Ein Loeschen, das nicht
+        // loescht, ist schlimmer als keines — man haelt den Schluessel fuer
+        // entfernt, waehrend er weiter auf jeder Seite steht.
+        //
+        // Deshalb der Wachwert: Gibt es die Zeile, gilt ihr Inhalt, auch
+        // wenn er leer ist. Die `.env` greift nur, solange NIEMAND etwas
+        // eingetragen hat — der Zustand vor der ersten Benutzung.
         if (function_exists('setting')) {
-            $wert = setting('acars.carto_api_key', null);
-            if (is_string($wert) && trim($wert) !== '') {
-                return trim($wert);
+            $wachwert = '__COREFIXES_KEINE_ZEILE__';
+            $wert = setting('acars.carto_api_key', $wachwert);
+            if ($wert !== $wachwert) {
+                return is_string($wert) ? trim($wert) : '';
             }
         }
 
-        return trim($ausEnv);
+        return trim((string) env('CARTO_API_KEY', ''));
     }
 
     /** Vor dem ERSTEN Vorkommen einsetzen. */
