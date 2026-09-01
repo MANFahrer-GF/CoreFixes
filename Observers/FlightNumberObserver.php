@@ -62,17 +62,65 @@ use Modules\CoreFixes\Exceptions\FlightNumberInvalidException;
  * greift fuer alle Piloten SOFORT beim naechsten Client-Update, waehrend
  * dieser Block nur NEUE Faelle verhindert und alte erst beim naechsten
  * Bearbeiten erzwingt.
+ *
+ * v1.10.2 (2026-09-01) — EIN ALTLASTFALL DARF KEINEN CRON-LAUF MITNEHMEN
+ *
+ * Im Log stand seit Monaten jede Nacht um 01:02 dieselbe Zeile. Der Kern-
+ * Listener `SetActiveFlights` (app/Cron/Nightly/SetActiveFlights.php) laeuft
+ * per `cursor()` durch ALLE aktiven Fluege und ruft auf jedem `save()`, um
+ * `visible` zu setzen. Trifft er dabei die eine Altlastzeile mit
+ * `flight_number = 0`, wirft dieser Observer — und die Exception verlaesst
+ * die `each()`-Schleife. Gemessen am 01.09.2026: der Flug stand an Position
+ * 128.073 von 177.188, also blieben rund 49.000 Fluege ohne Sichtbarkeits-
+ * Abgleich, und die Listener NACH SetActiveFlights (`RecalculateStats`,
+ * `NewVersionCheck`, die Nightly-Teile der Disposable-Module) liefen gar
+ * nicht mehr. Der Nightly-Lauf war also seit Monaten halb tot, ohne dass es
+ * jemandem auffiel — genau die Fehlerklasse aus dem Wochen-Cron (Fix 3).
+ *
+ * Die Exception bleibt trotzdem der Normalfall. Sie muss bleiben, weil
+ * `DS_FreeFlightController::store()` den Rueckgabewert von `save()` nicht
+ * prueft (siehe oben): ein blosses `return false` wuerde dort eine kaputte
+ * Buchung als Erfolg anzeigen. Gelockert wird nur der eng umrissene Fall,
+ * der NICHT vom Aufrufer verursacht wird:
+ *
+ *   Konsole   — kein Formular, kein Nutzer, niemand bekommt eine Meldung;
+ *   Bestand   — die Zeile existiert bereits ($flight->exists);
+ *   unberuehrt— dieser Save aendert `flight_number` gar nicht (!isDirty).
+ *
+ * Alle drei zusammen heissen: hier will jemand etwas anderes speichern und
+ * stolpert nur ueber einen alten Defekt. Dann wird der Save still abgelehnt
+ * (`return false` — die Zeile bleibt unveraendert, der Defekt bleibt also
+ * bestehen und sichtbar) und eine Warnung geloggt, statt den ganzen Lauf zu
+ * beenden. Wer in der Konsole eine 0 NEU setzt oder eine Zeile NEU anlegt,
+ * bekommt weiterhin die Exception.
+ *
+ * ⚠ Die Signatur muss `bool` zurueckgeben. Bei `void` ignoriert Eloquent
+ *   jeden Rueckgabewert, und das Abbrechen des Saves funktioniert nicht.
  */
 final class FlightNumberObserver
 {
-    public function saving(Flight $flight): void
+    public function saving(Flight $flight): bool
     {
         $flightNumber = (int) ($flight->getAttributes()['flight_number'] ?? 0);
         if ($flightNumber > 0) {
-            return;
+            return true;
         }
 
         $callsign = trim((string) ($flight->getAttributes()['callsign'] ?? ''));
+
+        // Altlast, die dieser Save gar nicht anfasst, und kein Nutzer davor:
+        // still ablehnen statt den Aufrufer (Cron) mitzureissen. Siehe den
+        // Doc-Kommentar oben — alle drei Bedingungen muessen zutreffen.
+        if (app()->runningInConsole() && $flight->exists && !$flight->isDirty('flight_number')) {
+            Log::warning('CoreFixes: Flight-Save mit flight_number <= 0 in der Konsole STILL ABGELEHNT (Altlast, Lauf geht weiter)', [
+                'flight_id'   => $flight->id ?? null,
+                'airline_id'  => $flight->airline_id ?? null,
+                'route_code'  => $flight->route_code ?? null,
+                'callsign'    => $callsign !== '' ? $callsign : null,
+            ]);
+
+            return false;
+        }
 
         Log::warning('CoreFixes: Flight-Save mit flight_number <= 0 BLOCKIERT', [
             'flight_id'   => $flight->id ?? null,
