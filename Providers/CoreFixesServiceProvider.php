@@ -11,7 +11,9 @@ use App\Models\Pirep;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
+use App\Http\Controllers\Frontend\ProfileController;
 use Modules\CoreFixes\Http\Controllers\AcarsControllerFix;
+use Modules\CoreFixes\Http\Controllers\ProfileControllerFix;
 use Modules\CoreFixes\Http\Middleware\CartoSchluessel;
 use Modules\CoreFixes\Observers\FlightNumberObserver;
 use Modules\CoreFixes\Observers\PirepBlockTimeObserver;
@@ -59,6 +61,12 @@ use Modules\DisposableSpecial\Services\DS_CronServices;
  *      NULL bliebe und die Track-Sortierung kippen wuerde. Der Fix nimmt
  *      an dieser einen Stelle Eloquent. Wieder Container-Tausch statt
  *      Dateipatch.
+ *   7. ProfileControllerFix — `/profile/{id}`, `/users/{id}` und
+ *      `/pilots/{id}` zeigen alle auf `ProfileController@show(int $id)`.
+ *      Ruft jemand einen dieser Pfade mit Text auf, wirft PHP einen
+ *      TypeError, und der Besucher bekommt HTTP 500 statt 404. Wieder
+ *      Container-Tausch; eine Routen-Einschraenkung waere hier wirkungslos
+ *      (Begruendung im Doc-Kommentar der Fix-Klasse).
  */
 final class CoreFixesServiceProvider extends ServiceProvider
 {
@@ -279,5 +287,12 @@ final class CoreFixesServiceProvider extends ServiceProvider
         // Endpunkte (acars_get, acars_logs, acars_events, route_*) und
         // aendert nur `acars_store`.
         $this->app->bind(AcarsController::class, AcarsControllerFix::class);
+
+        // FIX 7 — `profile/{id}`, `users/{id}`, `pilots/{id}` beantworten Text
+        // mit 404 statt 500. Warum ueber den Container und nicht ueber eine
+        // Routen-Einschraenkung: siehe den Doc-Kommentar von ProfileControllerFix
+        // (Provider-boot laeuft vor der Routen-Registrierung, und diese
+        // Installation faehrt route:cache).
+        $this->app->bind(ProfileController::class, ProfileControllerFix::class);
     }
 }
