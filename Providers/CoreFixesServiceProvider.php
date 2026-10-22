@@ -12,6 +12,10 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
 use App\Http\Controllers\Frontend\ProfileController;
+use Illuminate\Cache\RateLimiter;
+use Illuminate\Contracts\Cache\LockProvider;
+use Illuminate\Support\Facades\Cache;
+use Modules\CoreFixes\Cache\StatistikCacheManager;
 use Modules\CoreFixes\Http\Controllers\AcarsControllerFix;
 use Modules\CoreFixes\Http\Controllers\ProfileControllerFix;
 use Modules\CoreFixes\Http\Middleware\CartoSchluessel;
@@ -67,6 +71,10 @@ use Modules\DisposableSpecial\Services\DS_CronServices;
  *      TypeError, und der Besucher bekommt HTTP 500 statt 404. Wieder
  *      Container-Tausch; eine Routen-Einschraenkung waere hier wirkungslos
  *      (Begruendung im Doc-Kommentar der Fix-Klasse).
+ *   8. Anwendungs-Cache mit Statistik-Ausnahme — schaltet per
+ *      `COREFIXES_APP_CACHE` den Cache ein, ohne dass Profil- und
+ *      Bestenlisten-Werte nach der Landung einfrieren (siehe
+ *      `anwendungsCacheEinschalten()` und `StatistikAusnahmeStore`).
  */
 final class CoreFixesServiceProvider extends ServiceProvider
 {
@@ -262,8 +270,100 @@ final class CoreFixesServiceProvider extends ServiceProvider
         });
     }
 
+    /**
+     * FIX 8 — Anwendungs-Cache einschalten, ohne dass Piloten-Statistik einfriert.
+     *
+     * Schalter: `.env` `COREFIXES_APP_CACHE=redis` (oder `file`, oder ein anderer
+     * Store aus `config/cache.php`). Fehlt der Eintrag, passiert hier NICHTS —
+     * die Installation laeuft wie mit `CACHE_DRIVER=null`.
+     *
+     * # Warum hier und nicht ueber `CACHE_DRIVER`
+     *
+     * `CACHE_DRIVER` bleibt `null`. Faellt dieses Modul aus (deaktiviert, Fehler,
+     * Update), ist damit automatisch wieder der Zustand von heute da — statt
+     * still eingefrorener Statistik. Gemessen 22.10.2026 an einer Kopie von Live
+     * (`/api/status`, OPcache): null 653 ms, Cache ueber `CACHE_DRIVER` 361 ms,
+     * dieser Weg 387 ms. Den Rest holen Modulliste und Aktivstatus, die nwidart
+     * schon vor diesem Provider liest; sie bleiben bewusst ungecacht.
+     *
+     * # Was genau umgestellt wird — und was bewusst NICHT
+     *
+     * - Der Cache-Manager wird gegen `StatistikCacheManager` getauscht. Dessen
+     *   Standard-Store ist der gewaehlte Store, eingepackt in
+     *   `StatistikAusnahmeStore` (Statistik-Schluessel werden nie gespeichert,
+     *   ein ausgefallener Redis antwortet wie heute).
+     * - Die CONFIG bleibt unberuehrt (`cache.default` bleibt `null`): phpVMS ruft
+     *   `config:cache` selbst auf, ein dort eingefrorener Laufzeitwert legte ohne
+     *   dieses Modul jede Seite lahm. Mit gecachter Config liest `env()` nichts —
+     *   der Schalter ist dann AUS, also wieder wie heute.
+     * - Drosseln (`throttle:`) bleiben wirkungslos wie heute: der RateLimiter
+     *   bekommt ausdruecklich den Null-Speicher, z. B. `simbrief/check_ofp` 10/min.
+     * - Bereits gebaute Instanzen werden verworfen: `cache`, `cache.store`,
+     *   `cache.psr6`, RateLimiter und der Facade-Zwischenspeicher.
+     * - Zeitplan-Sperren bleiben wie heute im Datei-Speicher
+     *   (`zeitplanSperrenReparieren()` liest die unveraenderte Config).
+     * - Modulliste und Aktivstatus, die nwidart schon vorher gelesen hat, bleiben
+     *   ungecacht (nwidart haelt den alten Manager).
+     *
+     * Nach dem Einschalten wirken Settings und Modul-Aktivstatus gecacht: wer sie
+     * direkt in der DB aendert, braucht danach `php artisan cache:clear`.
+     */
+    private function anwendungsCacheEinschalten(): void
+    {
+        $ziel = trim((string) env('COREFIXES_APP_CACHE', ''));
+        if ($ziel === '') {
+            return;
+        }
+        $standard = config('cache.default');
+        if ($standard !== null && $standard !== '' && $standard !== 'null') {
+            // Wer CACHE_DRIVER selbst gesetzt hat, hat entschieden — dann nicht
+            // darueberlegen, sondern laut melden: dort fehlt die Ausnahmeliste.
+            Log::warning('[CoreFixes] COREFIXES_APP_CACHE ignoriert: CACHE_DRIVER ist schon "'.$standard.'" — Statistik-Ausnahmen greifen NICHT.');
+
+            return;
+        }
+
+        try {
+            if ($ziel === 'null' || $ziel === StatistikCacheManager::STORE || ! is_array(config('cache.stores.'.$ziel))) {
+                throw new \InvalidArgumentException('kein Cache-Store "'.$ziel.'" in config/cache.php');
+            }
+
+            // Laedt den aufgeschobenen CacheServiceProvider, falls noch nicht
+            // geschehen — sonst ueberschriebe er spaeter unsere Bindung.
+            $this->app->make('cache');
+
+            $manager = new StatistikCacheManager($this->app, $ziel);
+            // Probe VOR dem Tausch: ein nicht erreichbarer Redis soll den Start
+            // nicht kosten, sondern beim alten Zustand bleiben. Kurze Zeitgrenze,
+            // damit ein haengender Redis keine Minute blockiert.
+            if (config('cache.stores.'.$ziel.'.driver') === 'redis') {
+                $verbindung = 'database.redis.'.(config('cache.stores.'.$ziel.'.connection') ?? 'default');
+                config([
+                    $verbindung.'.timeout' => config($verbindung.'.timeout') ?: 1.0,
+                    $verbindung.'.read_timeout' => config($verbindung.'.read_timeout') ?: 1.0,
+                ]);
+            }
+            $innen = $manager->store($ziel)->getStore();
+            $innen->get('corefixes:probe');
+            if (! $innen instanceof LockProvider) {
+                throw new \InvalidArgumentException('Store "'.$ziel.'" kann keine Sperren');
+            }
+
+            $this->app->instance('cache', $manager);
+            $this->app->singleton(RateLimiter::class, fn ($app) => new RateLimiter($app->make('cache')->driver('null')));
+            foreach (['cache.store', 'cache.psr6', RateLimiter::class] as $instanz) {
+                $this->app->forgetInstance($instanz);
+            }
+            Cache::clearResolvedInstance('cache');
+        } catch (\Throwable $e) {
+            Log::warning('[CoreFixes] Anwendungs-Cache NICHT eingeschaltet, bleibt wie bisher: '.$e->getMessage());
+        }
+    }
+
     public function register(): void
     {
+        $this->anwendungsCacheEinschalten();
+
         // Alle vier Aufrufe in DisposableSpecials Gen_Cron holen den Dienst ueber
         // app(DS_CronServices::class) — diese eine Bindung deckt sie alle ab.
         $this->app->bind(DS_CronServices::class, DisposableCronFix::class);

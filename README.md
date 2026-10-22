@@ -397,3 +397,67 @@ sondern der Text, den sie anzeigt: bei Durchschnitts-Typen bekommt die Spalte ei
 davor. Wirkt in beiden Fassungen. Zahl, Sortierung und Auswahl bleiben unverändert —
 die waren nie falsch.
 
+
+## Anwendungs-Cache mit Statistik- und Wetter-Ausnahme (v1.11.0)
+
+**Anlass 22.10.2026:** Jeder Request auf GSG kostete ~1,5 s, ein großer Teil davon, weil
+`CACHE_DRIVER=null` jedes `Cache::remember` ins Leere laufen lässt. Den Cache einfach
+einzuschalten ging nicht: Dann erschienen Profil- und Bestenlisten-Werte nach einer Landung
+erst Stunden später. DisposableBasic cacht seine Statistik bis Mitternacht UTC und löscht
+sie nirgends. Vorgabe: **Mit Cache muss es für Piloten genauso sein wie heute, und das Wetter
+immer frisch.**
+
+**Schalter:** `.env` → `COREFIXES_APP_CACHE=redis` (oder ein anderer Store aus
+`config/cache.php`, der Sperren kann). **Ohne diese Zeile passiert nichts.**
+Einschalten: Zeile setzen, `php artisan cache:clear`.
+Ausschalten: Zeile entfernen, `php artisan cache:clear`.
+
+**Was passiert, wenn der Schalter an ist:**
+- Der Cache-Manager wird gegen `StatistikCacheManager` getauscht. Dessen Standard-Store
+  ist der gewählte Store, eingepackt in `StatistikAusnahmeStore`.
+- Schlüssel mit den Anfängen aus `StatistikAusnahmeStore::PRAEFIXE` werden **nie
+  gespeichert**, also bei jedem Aufruf frisch gerechnet, exakt wie mit NullStore. Das betrifft
+  Piloten-Statistik (DisposableBasic, SPPassport, SkyOps, FleetDesk-Kostenbericht) und Wetter
+  (Core METAR/TAF, WeatherBriefing METAR/TAF, ATCNotepad, LiveMap-Wetterkacheln).
+- Alles andere wird gecacht: Settings, Modul-Aktivstatus, WeatherBriefing-Versionsschlüssel,
+  Flughafen-Lookups.
+- **Die Config bleibt unberührt.** `cache.default` bleibt `null`, weil phpVMS selbst
+  `config:cache` aufruft (Admin → Wartung, Modulinstallation). Ein dort eingefrorener
+  Laufzeitwert legte ohne dieses Modul jede Seite lahm. Mit gecachter Config ist der Schalter
+  aus, es gilt also wieder der Zustand ohne Cache.
+- Drosseln (`throttle:`) bleiben wirkungslos wie bisher, Zeitplan-Sperren bleiben im
+  Datei-Speicher.
+- **Fällt Redis aus**, gibt es keinen Fehler: beim Start bleibt alles beim Alten, im Betrieb
+  antwortet der Store wie NullStore (Sperre = `NoLock`). Je Prozess steht genau eine Warnung
+  im Log.
+
+**Nach dem Einschalten zu beachten:** Settings oder Module, die direkt in der DB geändert
+werden, brauchen danach `php artisan cache:clear`. Ein **neues Modul mit
+Piloten-Statistik** muss seinen Schlüssel-Anfang in `PRAEFIXE` eintragen, sonst friert dessen
+Anzeige ein.
+
+**Gemessen an einer Kopie von Live** (OPcache, Redis, Median): `/api/status` 624 → 439 ms,
+`/login` 751 → 526 ms, je −30 %.
+
+## Nicht eingebunden: `Services/SimBriefAirframeAufraeumer.php`
+
+Liegt seit 30.08.2026 auf Live. Der Provider bindet die Klasse seit 01.09.2026 **nicht** mehr
+ein, sie ist also wirkungslos. Ins Repo übernommen, damit Repo und Live übereinstimmen. Ob sie
+wieder eingebunden oder entfernt wird, ist offen.
+
+## Application cache with statistics and weather exception (v1.11.0, English)
+
+`.env` `COREFIXES_APP_CACHE=redis` switches the application cache on while `CACHE_DRIVER`
+stays `null`. Without the line nothing happens.
+
+Keys starting with a prefix from `StatistikAusnahmeStore::PRAEFIXE` (pilot statistics and
+weather) are never stored. They behave exactly like Laravel's NullStore, so profile tiles,
+leaderboards and METAR/TAF are always fresh, like before. Everything else is cached.
+
+The config is never touched (`cache.default` stays `null`), because phpVMS itself runs
+`config:cache`. With a cached config the switch is simply off. Throttles stay inactive and
+schedule locks stay on the file store. If Redis fails, the site keeps running as without a
+cache, with one log warning per process.
+
+After switching on, run `php artisan cache:clear` after direct DB edits of settings or modules.
+Measured on a copy of production: −30 % response time.
