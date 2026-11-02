@@ -491,3 +491,21 @@ whose airframe_icao belongs to another type key, so the base type keeps its own 
 as the core, nothing deleted.
 
 **v1.12.1:** SimBriefs Typschlüssel steht in `aircraft_id` (BBJ2), `aircraft_icao` ist die ICAO (B738) — 1.12.0 verglich das falsche Feld und übersprang auf Live 0 Varianten. Zusätzlich überschreiben Varianten jetzt auch die Typdaten (`simbrief_aircraft`, je ICAO) des Grundtyps nicht mehr. Vorab an der Liste geprüft: 19 Varianten-Defaults und 19 Typzeilen.
+
+## Fremde Positions-ID wird neu angelegt statt verloren (v1.12.2)
+
+phpVMS 7.0.11 verwirft in `acars_store` eine Positions-`id`, die schon einer Zeile eines **anderen** PIREPs
+gehört, und legt die Position neu an. Fix 5 ersetzt `acars_store` und hatte diese Prüfung nicht: Die fremde
+Zeile blieb zwar unangetastet (die `pirep_id` steckt im Schlüssel), aber der Insert lief in den
+Primärschlüssel und die Position ging still verloren. 1.12.2 übernimmt die Prüfung wörtlich aus dem Core.
+
+Geprüft am 02.11.2026 auf GSG-Live in einer zurückgerollten Transaktion: 1.12.1 „0 positions added“,
+1.12.2 „1 positions added“, fremde Zeile unverändert, erneutes Senden mit der eigenen `id` verdoppelt
+nichts. Mit AeroACARS praktisch nicht erreichbar (Positions-IDs sind UUIDv4).
+
+## A foreign position id is stored as a new row instead of lost (v1.12.2, English)
+
+phpVMS 7.0.11 drops a position `id` in `acars_store` that already belongs to a row of **another** PIREP and
+stores the position as a new row. Fix 5 replaces `acars_store` and lacked that check: the foreign row stayed
+untouched (`pirep_id` is part of the key), but the insert hit the primary key and the position was silently
+lost. 1.12.2 takes the check verbatim from the core. Verified on GSG live inside a rolled-back transaction.

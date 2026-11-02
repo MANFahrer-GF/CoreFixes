@@ -43,7 +43,8 @@ use Illuminate\Support\Facades\Log;
  * geht es ueber **Eloquent** (`updateOrCreate`), damit Timestamps, Casts
  * und `$fillable` genauso greifen wie beim normalen Anlegen. Alles andere
  * ist unveraendert aus `App\Http\Controllers\Api\AcarsController` von
- * phpVMS 7.0.8 uebernommen.
+ * phpVMS 7.0.8 uebernommen; die Fremd-ID-Pruefung aus 7.0.11 ist
+ * nachgezogen (CoreFixes 1.12.2).
  *
  * ACHTUNG BEI PHPVMS-UPDATES: Die Methode ist eine Kopie. Sie faengt keine
  * Aenderungen auf, die der Core an `acars_store` vornimmt — nach einem
@@ -109,6 +110,15 @@ class AcarsControllerFix extends AcarsController
                 unset($position['id']);
             }
 
+            // Wie im Core seit phpVMS 7.0.11: eine `id`, die schon einer
+            // Zeile eines ANDEREN PIREPs gehoert, wird verworfen und die
+            // Position neu angelegt. Ohne diese Pruefung liefe der Insert
+            // unten in den Primaerschluessel und die Position ginge still
+            // verloren.
+            if (isset($position['id']) && Acars::whereKey($position['id'])->where('pirep_id', '!=', $id)->exists()) {
+                unset($position['id']);
+            }
+
             try {
                 if (!empty($position['id'])) {
                     // HIER liegt der ganze Unterschied zum Core: Eloquent
@@ -123,9 +133,8 @@ class AcarsControllerFix extends AcarsController
                     // Position eines fremden Fluges ueberschreiben — der
                     // Endpunkt prueft nur, ob der PIREP existiert und nicht
                     // storniert ist. Mit pirep_id im Schluessel trifft ein
-                    // fremder Wert keine Zeile; der anschliessende Insert
-                    // laeuft in den Primaerschluessel und wird als
-                    // QueryException geloggt statt fremde Daten zu aendern.
+                    // fremder Wert keine Zeile (zweite Sicherung neben der
+                    // Pruefung oben).
                     Acars::updateOrCreate(
                         ['id' => $key, 'pirep_id' => $id],
                         $position
