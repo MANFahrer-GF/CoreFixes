@@ -20,7 +20,10 @@ use Illuminate\Support\Facades\Cache;
 use Modules\CoreFixes\Cache\StatistikCacheManager;
 use Modules\CoreFixes\Http\Controllers\AcarsControllerFix;
 use Modules\CoreFixes\Http\Controllers\ProfileControllerFix;
+use Modules\CoreFixes\Http\Middleware\ApiSeitengroesse;
 use Modules\CoreFixes\Http\Middleware\CartoSchluessel;
+use Modules\CoreFixes\Http\Middleware\ManuelleQuelle;
+use Modules\CoreFixes\Listeners\ProfilRufzeichen;
 use Modules\CoreFixes\Observers\FlightNumberObserver;
 use Modules\CoreFixes\Observers\PirepBlockTimeObserver;
 use Modules\CoreFixes\Observers\UserCallsignObserver;
@@ -88,6 +91,26 @@ final class CoreFixesServiceProvider extends ServiceProvider
         $this->zeitplanSperrenReparieren();
         $this->cartoSchluesselEinhaengen();
         $this->sperrdauerKuerzen();
+        $this->phpvms7013Nachziehen();
+    }
+
+    /**
+     * Drei Stellen, die phpVMS 7.0.13 fuer GSG sonst bricht (Fix 10–12):
+     * Seitengroesse der API, Quelle „manuell“ und das Rufzeichen im Profil.
+     * Die Gruende stehen in den drei Klassen. Alle drei sind auf 7.0.11
+     * wirkungslos bzw. deckungsgleich mit dem alten Verhalten, das Modul darf
+     * also VOR dem Kern ausgerollt werden.
+     */
+    private function phpvms7013Nachziehen(): void
+    {
+        \Illuminate\Support\Facades\Event::listen(\App\Events\ProfileUpdated::class, ProfilRufzeichen::class);
+
+        $this->app->booted(function (): void {
+            /** @var \Illuminate\Routing\Router $router */
+            $router = $this->app->make(\Illuminate\Routing\Router::class);
+            $router->pushMiddlewareToGroup('api', ApiSeitengroesse::class);
+            $router->pushMiddlewareToGroup('api', ManuelleQuelle::class);
+        });
     }
 
     /**

@@ -509,3 +509,43 @@ phpVMS 7.0.11 drops a position `id` in `acars_store` that already belongs to a r
 stores the position as a new row. Fix 5 replaces `acars_store` and lacked that check: the foreign row stayed
 untouched (`pirep_id` is part of the key), but the insert hit the primary key and the position was silently
 lost. 1.12.2 takes the check verbatim from the core. Verified on GSG live inside a rolled-back transaction.
+
+## Drei Stellen, die phpVMS 7.0.13 sonst bricht (v1.12.3)
+
+phpVMS 7.0.13 ist ein Sicherheitsupdate und schließt dabei drei Wege, auf die GSG sich verlässt.
+1.12.3 hält sie von außen offen, ohne die Sicherheitsänderung zurückzunehmen.
+
+- **Fix 10, Seitengröße der API:** Der Kern deckelt jede Seitengröße auf `repository.pagination.limit` (20).
+  AeroACARS holt die Flotte mit `/api/fleet?limit=100` und hört auf zu blättern, sobald eine Seite weniger
+  als 100 Einträge hat; der Pilot sähe 20 von 815 Subflotten. Ein ausdrücklich angefragtes `limit` gilt
+  deshalb wieder bis 100. Ohne `limit` bleibt es bei 20, mehr als 100 gibt es nicht.
+- **Fix 11, Quelle „manuell“:** AeroACARS meldet einen von Hand beendeten Flug vor der Abgabe mit
+  `source: 0`; davon hängen automatische Annahme, Bezahlung und Wartung ab. Der Kern verwirft `source` jetzt.
+  Erlaubt bleibt genau eine Richtung, ACARS → manuell, am eigenen PIREP und nur, wenn der Kern die Anfrage
+  angenommen hat. Manuell → ACARS bleibt verworfen.
+- **Fix 12, Rufzeichen im Profil:** Der Kern speichert nur noch eine feste Liste von Profilfeldern, das
+  Rufzeichen aus dem SPTheme-Formular fehlt darin. Es wird nach erfolgreichem Speichern nachgetragen;
+  scheitert das Formular, bleibt es unverändert.
+
+Geprüft am 11.11.2026 auf test.kant.ovh (phpVMS 7.0.13, mit und ohne Routen-Cache), Anfragen durch Router
+und Zwischenschichten: ohne 1.12.3 kamen bei `limit=100` 20 Einträge und das Rufzeichen blieb stehen; mit
+1.12.3 100 Einträge (Seite 2: Rest), `limit=100000` → 100, ohne `limit` → 20; Quelle nur ACARS → manuell,
+fremder, stornierter und angenommener PIREP unverändert; Rufzeichen gesäubert gespeichert, bei ungültigem
+Formular unverändert, leer → entfernt.
+
+## Three things phpVMS 7.0.13 would otherwise break (v1.12.3, English)
+
+phpVMS 7.0.13 is a security release that closes three paths this installation relies on. 1.12.3 keeps them
+working from the outside without undoing the security change.
+
+- **Fix 10, API page size:** the core now caps every page size at `repository.pagination.limit` (20).
+  AeroACARS fetches the fleet with `/api/fleet?limit=100` and stops paging once a page has fewer than 100
+  entries. An explicitly requested `limit` is honoured again up to 100; the default stays 20.
+- **Fix 11, source "manual":** AeroACARS marks a manually ended flight with `source: 0` before filing, which
+  drives auto-accept, pay and maintenance. The core now drops `source`. Exactly one direction stays allowed:
+  ACARS → manual, on the pilot's own PIREP, and only if the core accepted the request.
+- **Fix 12, callsign in the profile:** the core only saves a fixed list of profile fields; the callsign from
+  the SPTheme form is not on it. It is stored after a successful save and left untouched if the form fails.
+
+Verified on a 7.0.13 test installation with requests through the router and middleware, with and without
+route cache.
