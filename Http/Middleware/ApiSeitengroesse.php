@@ -21,10 +21,11 @@ use Symfony\Component\HttpFoundation\Response;
  * 20 von 815 Subflotten. Die Clients lassen sich nicht nachtraeglich
  * aendern, also muss der Server die 100 weiter liefern.
  *
- * Angehoben wird nur fuer diese eine Anfrage und nur, wenn sie selbst ein
- * groesseres `limit` nennt. Die Standardgroesse (ohne `limit`) bleibt 20,
- * und mehr als 100 gibt es nicht — der Schutz des Kerns vor `limit=100000`
- * bleibt also erhalten.
+ * Angehoben wird nur fuer `/api/fleet`, nur fuer diese eine Anfrage und
+ * nur, wenn sie selbst ein groesseres `limit` nennt. Die Standardgroesse
+ * (ohne `limit`) bleibt 20, mehr als 100 gibt es nicht, und alle anderen
+ * API-Wege behalten den Deckel des Kerns (im Zugriffslog 01.–11.11.2026
+ * fragt niemand sonst mehr als 20 an).
  */
 class ApiSeitengroesse
 {
@@ -34,7 +35,7 @@ class ApiSeitengroesse
     {
         $limit = $request->query('limit');
 
-        if (is_string($limit) && ctype_digit($limit)) {
+        if ($request->is('api/fleet') && is_string($limit) && ctype_digit($limit)) {
             $gewuenscht = min((int) $limit, self::OBERGRENZE);
 
             if ($gewuenscht > (int) config('repository.pagination.limit', 50)) {

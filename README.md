@@ -517,8 +517,9 @@ phpVMS 7.0.13 ist ein Sicherheitsupdate und schließt dabei drei Wege, auf die G
 
 - **Fix 10, Seitengröße der API:** Der Kern deckelt jede Seitengröße auf `repository.pagination.limit` (20).
   AeroACARS holt die Flotte mit `/api/fleet?limit=100` und hört auf zu blättern, sobald eine Seite weniger
-  als 100 Einträge hat; der Pilot sähe 20 von 815 Subflotten. Ein ausdrücklich angefragtes `limit` gilt
-  deshalb wieder bis 100. Ohne `limit` bleibt es bei 20, mehr als 100 gibt es nicht.
+  als 100 Einträge hat; der Pilot sähe 20 von 815 Subflotten. Für `/api/fleet` gilt ein ausdrücklich
+  angefragtes `limit` deshalb wieder bis 100. Ohne `limit` bleibt es bei 20, mehr als 100 gibt es nicht,
+  alle anderen API-Wege behalten den Deckel des Kerns.
 - **Fix 11, Quelle „manuell“:** AeroACARS meldet einen von Hand beendeten Flug vor der Abgabe mit
   `source: 0`; davon hängen automatische Annahme, Bezahlung und Wartung ab. Der Kern verwirft `source` jetzt.
   Erlaubt bleibt genau eine Richtung, ACARS → manuell, am eigenen PIREP und nur, wenn der Kern die Anfrage
@@ -540,10 +541,12 @@ working from the outside without undoing the security change.
 
 - **Fix 10, API page size:** the core now caps every page size at `repository.pagination.limit` (20).
   AeroACARS fetches the fleet with `/api/fleet?limit=100` and stops paging once a page has fewer than 100
-  entries. An explicitly requested `limit` is honoured again up to 100; the default stays 20.
+  entries. For `/api/fleet` an explicitly requested `limit` is honoured again up to 100; the default stays
+  20 and every other API route keeps the core cap.
 - **Fix 11, source "manual":** AeroACARS marks a manually ended flight with `source: 0` before filing, which
   drives auto-accept, pay and maintenance. The core now drops `source`. Exactly one direction stays allowed:
-  ACARS → manual, on the pilot's own PIREP, and only if the core accepted the request.
+  ACARS → manual, on the pilot's own PIREP that is still in progress, and only if the core accepted the
+  request.
 - **Fix 12, callsign in the profile:** the core only saves a fixed list of profile fields; the callsign from
   the SPTheme form is not on it. It is stored after a successful save and left untouched if the form fails.
 

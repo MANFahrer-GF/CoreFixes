@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Modules\CoreFixes\Http\Middleware;
 
 use App\Models\Enums\PirepSource;
+use App\Models\Enums\PirepState;
 use App\Models\Pirep;
 use Closure;
 use Illuminate\Http\Request;
@@ -29,6 +30,10 @@ use Symfony\Component\HttpFoundation\Response;
  * PIREP, und nur wenn der Kern die Anfrage selbst angenommen hat (Besitzer,
  * nicht storniert, nicht abgeschlossen — das prueft der Controller, darum
  * laeuft diese Schicht NACH ihm). MANUAL → ACARS bleibt verworfen.
+ *
+ * Die Zustandsbedingung im UPDATE schliesst den Wettlauf mit einer
+ * gleichzeitigen Abgabe: ein inzwischen abgeschlossener PIREP wird nicht
+ * mehr umgeschrieben.
  */
 class ManuelleQuelle
 {
@@ -54,6 +59,7 @@ class ManuelleQuelle
         Pirep::where('id', $pirep)
             ->where('user_id', $pilot)
             ->where('source', PirepSource::ACARS)
+            ->where('state', PirepState::IN_PROGRESS)
             ->update(['source' => PirepSource::MANUAL]);
 
         return $response;

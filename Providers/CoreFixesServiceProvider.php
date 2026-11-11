@@ -97,9 +97,10 @@ final class CoreFixesServiceProvider extends ServiceProvider
     /**
      * Drei Stellen, die phpVMS 7.0.13 fuer GSG sonst bricht (Fix 10–12):
      * Seitengroesse der API, Quelle „manuell“ und das Rufzeichen im Profil.
-     * Die Gruende stehen in den drei Klassen. Alle drei sind auf 7.0.11
-     * wirkungslos bzw. deckungsgleich mit dem alten Verhalten, das Modul darf
-     * also VOR dem Kern ausgerollt werden.
+     * Die Gruende stehen in den drei Klassen. Nach Codelage sind alle drei auf
+     * 7.0.11 wirkungslos bzw. deckungsgleich mit dem alten Verhalten; das Modul
+     * geht deshalb VOR dem Kern auf Live (sonst gaebe es ein Fenster mit
+     * 20er-Flottenliste).
      */
     private function phpvms7013Nachziehen(): void
     {
