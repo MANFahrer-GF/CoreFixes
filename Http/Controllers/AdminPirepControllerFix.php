@@ -39,7 +39,9 @@ final class AdminPirepControllerFix extends PirepController
 
         $pireps = $repo
             ->with(['airline', 'aircraft', 'dpt_airport', 'arr_airport', 'user'])
-            ->whereOrder(['pireps.state' => PirepState::PENDING], 'pireps.created_at', 'desc')
+            ->where('pireps.state', PirepState::PENDING)
+            // wie index(): `sortable`, damit die Sortier-Links der Tabelle auch hier wirken
+            ->sortable(['created_at' => 'desc'])
             ->paginate();
 
         return view('admin.pireps.index', [
