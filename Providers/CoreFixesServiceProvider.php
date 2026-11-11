@@ -421,6 +421,10 @@ final class CoreFixesServiceProvider extends ServiceProvider
         // Installation faehrt route:cache).
         $this->app->bind(ProfileController::class, ProfileControllerFix::class);
 
+        // FIX 13 — `/admin/pireps/pending` antwortete mit 500 (Collection::orderBy). Die Ableitung
+        // ersetzt nur `pending`; Bindung ueber den Container wie bei Fix 7, weil route:cache laeuft.
+        $this->app->bind(\App\Http\Controllers\Admin\PirepController::class, \Modules\CoreFixes\Http\Controllers\AdminPirepControllerFix::class);
+
         // FIX 9 — der woechentliche SimBrief-Import (app/Cron/Weekly/UpdateSimbriefData holt den
         // Dienst ueber app(SimBriefService::class)) schreibt danach die „Default“-Profile mit den
         // Daten des Grundtyps statt der zuletzt gelesenen Variante. Siehe SimBriefDefaultKorrektur.

@@ -552,3 +552,20 @@ working from the outside without undoing the security change.
 
 Verified on a 7.0.13 test installation with requests through the router and middleware, with and without
 route cache.
+
+## Wartende PIREPs im Admin: Seite antwortete mit Fehler 500 (v1.12.4)
+
+- **Fix 13:** `/admin/pireps/pending` brach mit HTTP 500 ab. Der Kern ruft dort `orderBy` auf einer fertigen
+  Collection auf (`Method Illuminate\Database\Eloquent\Collection::orderBy does not exist`) und filtert
+  zusätzlich die Spalte `status` (Flugphase) statt `state` (Bearbeitungsstand). So in phpVMS 7.0.11 und 7.0.13.
+- CoreFixes ersetzt nur diese eine Methode (`AdminPirepControllerFix`). Die Seite zeigt jetzt die wartenden
+  PIREPs, neueste zuerst, in derselben Ansicht wie die PIREP-Liste. Alle anderen Admin-PIREP-Seiten bleiben
+  unverändert.
+
+## Pending PIREPs in the admin: page answered with error 500 (v1.12.4, English)
+
+- **Fix 13:** `/admin/pireps/pending` failed with HTTP 500. The core calls `orderBy` on a finished collection
+  there (`Method Illuminate\Database\Eloquent\Collection::orderBy does not exist`) and also filters the
+  column `status` (flight phase) instead of `state` (review state). Same in phpVMS 7.0.11 and 7.0.13.
+- CoreFixes replaces only this one method (`AdminPirepControllerFix`). The page now lists the pending PIREPs,
+  newest first, in the same view as the PIREP list. All other admin PIREP pages stay unchanged.
