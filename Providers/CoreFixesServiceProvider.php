@@ -429,5 +429,10 @@ final class CoreFixesServiceProvider extends ServiceProvider
         // Dienst ueber app(SimBriefService::class)) schreibt danach die „Default“-Profile mit den
         // Daten des Grundtyps statt der zuletzt gelesenen Variante. Siehe SimBriefDefaultKorrektur.
         $this->app->bind(SimBriefService::class, SimBriefDefaultKorrektur::class);
+
+        // FIX 14 — Flughafen über einen fremden Code (z. B. IATA) eingegeben: vaCentral liefert einen
+        // schon vorhandenen Flughafen mit anderer ID, der Kern legt ihn doppelt an und bricht mit 500 ab.
+        // Alle Aufrufer (Freiflug, PIREP, Flugimport, Umleitung) holen den Dienst über den Container.
+        $this->app->bind(\App\Services\AirportService::class, \Modules\CoreFixes\Services\AirportServiceFix::class);
     }
 }

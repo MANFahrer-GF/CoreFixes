@@ -569,3 +569,19 @@ route cache.
   column `status` (flight phase) instead of `state` (review state). Same in phpVMS 7.0.11 and 7.0.13.
 - CoreFixes replaces only this one method (`AdminPirepControllerFix`). The page now lists the pending PIREPs,
   newest first, in the same view as the PIREP list. All other admin PIREP pages stay unchanged.
+
+## Freiflug/PIREP: Flughafen über fremden Code brach mit Fehler 500 ab (v1.12.5)
+
+- **Fix 14:** Der Kern sucht einen eingegebenen Flughafen-Code nur als ID. Findet er ihn nicht, fragt er vaCentral
+  und legt das Ergebnis an. Liefert vaCentral dabei einen Flughafen, der unter seiner ICAO schon in der Datenbank
+  steht (z. B. „GL-0012“, Qaqortoq), bricht das Anlegen mit „Duplicate entry“ ab: HTTP 500, etwa beim Freiflug.
+- CoreFixes nimmt in diesem Fall den vorhandenen Flughafen (ein gelöschter wird wiederhergestellt). Alle anderen
+  Fälle laufen wie im Kern. Betrifft Freiflug, PIREP, Flugimport und Umleitung.
+
+## Free flight/PIREP: airport entered by another code failed with error 500 (v1.12.5, English)
+
+- **Fix 14:** The core looks up an entered airport code only as an ID. If it is not found, it asks vaCentral and
+  creates the result. If vaCentral returns an airport that already exists under its ICAO (e.g. "GL-0012",
+  Qaqortoq), creating it fails with "Duplicate entry": HTTP 500, for example in the free flight form.
+- CoreFixes now uses the existing airport in that case (a soft-deleted one is restored). All other cases behave
+  like the core. Applies to free flights, PIREPs, flight import and diversions.
