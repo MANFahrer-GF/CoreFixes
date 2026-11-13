@@ -585,3 +585,27 @@ route cache.
   Qaqortoq), creating it fails with "Duplicate entry": HTTP 500, for example in the free flight form.
 - CoreFixes now uses the existing airport in that case (a soft-deleted one is restored). All other cases behave
   like the core. Applies to free flights, PIREPs, flight import and diversions.
+
+## Buchung gelöscht, Flug noch am Boden: PIREP wird abgebrochen (v1.12.6)
+
+- **Fix 15:** Startet ein Pilot einen Flug im ACARS und löscht danach auf der Webseite die Buchung, ließ der Kern
+  den PIREP in Arbeit. Das Flugzeug blieb gesperrt, bis jemand den PIREP von Hand abbrach (GSG 13.11.2026, D-AIUM).
+- CoreFixes bricht jetzt beim Löschen einer Buchung den PIREP desselben Piloten auf demselben Flug über
+  `PirepService::cancel()` ab, wenn er noch in Arbeit ist und noch nicht abgehoben hat (Status INI, SCH, BST, RDT,
+  PBT, OFB, DIR, DIC, GRT, TXI). Alle Listener laufen, das Flugzeug wird frei. Ein Flug ab dem Startlauf (TOF und
+  später, auch PSD, EMG, DV) bleibt unangetastet. Auf der Webseite erscheint ein kurzer Hinweis, im Log steht
+  immer ein Eintrag.
+- Greift bei jeder Löschung am Model (`$bid->delete()`, `BidService::removeBid()`, also auch
+  `DELETE /api/user/bids`). Löschungen per Query-Builder (z. B. nach dem Einreichen) und das Aufräumen verwaister
+  Buchungen ohne Flug lösen nichts aus.
+
+## Booking deleted while the flight is still on the ground: the PIREP is cancelled (v1.12.6, English)
+
+- **Fix 15:** If a pilot started a flight in ACARS and then deleted the booking on the website, the core left the
+  PIREP in progress. The aircraft stayed blocked until someone cancelled the PIREP by hand (GSG 13.11.2026, D-AIUM).
+- CoreFixes now cancels the PIREP of the same pilot on the same flight through `PirepService::cancel()` when a
+  booking is deleted, as long as it is in progress and has not taken off (status INI, SCH, BST, RDT, PBT, OFB, DIR,
+  DIC, GRT, TXI). All listeners run and the aircraft is released. A flight from the takeoff roll on (TOF and later,
+  also PSD, EMG, DV) stays untouched. The website shows a short notice, the log always gets an entry.
+- Applies to every model deletion (`$bid->delete()`, `BidService::removeBid()`, so also `DELETE /api/user/bids`).
+  Query-builder deletions (e.g. after filing) and the cleanup of orphaned bookings without a flight trigger nothing.

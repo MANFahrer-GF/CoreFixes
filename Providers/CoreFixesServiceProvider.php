@@ -7,6 +7,7 @@ namespace Modules\CoreFixes\Providers;
 use App\Services\SimBriefService;
 use Modules\CoreFixes\Services\SimBriefDefaultKorrektur;
 use App\Http\Controllers\Api\AcarsController;
+use App\Models\Bid;
 use App\Models\Flight;
 use App\Models\User;
 use App\Models\Pirep;
@@ -24,6 +25,7 @@ use Modules\CoreFixes\Http\Middleware\ApiSeitengroesse;
 use Modules\CoreFixes\Http\Middleware\CartoSchluessel;
 use Modules\CoreFixes\Http\Middleware\ManuelleQuelle;
 use Modules\CoreFixes\Listeners\ProfilRufzeichen;
+use Modules\CoreFixes\Observers\BidDeletedObserver;
 use Modules\CoreFixes\Observers\FlightNumberObserver;
 use Modules\CoreFixes\Observers\PirepBlockTimeObserver;
 use Modules\CoreFixes\Observers\UserCallsignObserver;
@@ -88,6 +90,9 @@ final class CoreFixesServiceProvider extends ServiceProvider
         Pirep::observe(PirepBlockTimeObserver::class);
         Flight::observe(FlightNumberObserver::class);
         User::observe(UserCallsignObserver::class);
+        // Fix 15: geloeschte Buchung bricht den PIREP vor dem Start ab (BidDeletedObserver).
+        Bid::observe(BidDeletedObserver::class);
+        $this->loadTranslationsFrom(__DIR__.'/../Resources/lang', 'corefixes');
         $this->zeitplanSperrenReparieren();
         $this->cartoSchluesselEinhaengen();
         $this->sperrdauerKuerzen();
